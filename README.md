@@ -51,57 +51,25 @@ With no arguments, help is printed and the run aborts. Unknown mod names abort w
 ./modebos --dry-run -v minbase server kvm
 ```
 
-### Dependency Resolution
+### How it works
 
-When mods are specified, `modebos` resolves all dependencies recursively. It detects circular dependencies and `breaks` conflicts and stops the build if any are found.
+`modebos` resolves all mod dependencies (aborting on circular dependencies and `breaks` conflicts), generates a self-contained debos "shim" recipe per target, and runs `debos` to produce the artifacts. The `rootfs` target is built first and every other target layers on top of that same rootfs.
 
-Dependency resolution determines the minimal set of mods required to satisfy the command-line set; that minimal set is used as part of the artifact name.
-
-### Shim Generation
-
-For each target, a "shim" YAML file is generated that:
-
-- Combines all resolved mods' recipes into a single debos file
-- Sets template variables (suite, architecture, version)
-- Includes an `mmdebstrap` action for the rootfs target or an `unpack` action for other targets
-
-### Debos Execution
-
-Each generated shim file is passed to debos to generate the artifact. The rootfs is built first; each additional target uses the given target mod plus the minimal mod set to produce uniquely named artifacts.
+Mod concepts, the dependency/conflict model, and artifact naming are documented in [`mods/README.md`](mods/README.md) — read it before composing your own mods.
 
 ## Build Artifacts
 
 Generated files are placed in `./artifacts/` by default:
 
-- Root filesystem tarballs (`suite-rootfs-[mods]-[version]-[commit].tar.gz`)
-- Target images, e.g. KVM `.raw`/`.img` files and OCI container archives (`suite-oci-[mods]-...-tar.gz`)
-- Shim YAML files, kept for debugging, plus a `.yaml.log` per build
+- Root filesystem tarballs (`*.tar.gz`), consumed by every other target as its base layer
+- Target images, e.g. KVM `.raw`/`.img` files and OCI container archives (`*.tar.gz`)
+- Shim YAML recipes, kept for debugging, plus a `.yaml.log` per build
 
-`artifacts/` is git-ignored.
+`artifacts/` is git-ignored. Filenames follow the scheme documented in [`mods/README.md`](mods/README.md#artifact-naming).
 
-## Modules (`mods/` directory)
+## Modules
 
-Each configuration is a "mod" in its own directory under `mods/`. The mod name is the directory name and other mods reference it by that name in `include`/`breaks`. Mod names must NOT contain `-`, because they appear in dash-joined artifact filenames and a dash would break downstream parsing.
-
-The complete catalog of mods (with per-mod descriptions) lives in [`mods/README.md`](mods/README.md). A mod consists of:
-
-- [`meta.yaml`](../mods/minbase/meta.yaml) - metadata: `description`, `type` (`mod` or `target`), `include` (dependencies), `breaks` (mutual exclusion), `label` (whether the name appears in artifact filenames)
-- `in-rootfs.yaml` - debos recipe applied during rootfs builds
-- `in-target.yaml` - debos recipe applied during target builds (e.g. overlays)
-- `target.yaml` - main debos template for target mods (kvm, oci, ...)
-- `files/` - optional overlay content, mounted via `action: overlay` with `source: files`
-
-### Feature modules
-
-- Provide packages, configurations, or scripts regardless of the image format
-- Current mods: `minbase`, `systemd`, `server`, `cloud`, `gactions`, `qemunet`, `lab`, `prod`
-- Contribute to rootfs builds via `in-rootfs.yaml` and to target builds via `in-target.yaml`
-
-### Target modules
-
-- Define output formats (rootfs tarball, KVM image, OCI container image)
-- Current mods: `rootfs`, `kvm`, `oci`
-- Provide a `target.yaml` that serves as the main debos template; may also contribute `in-rootfs.yaml`/`in-target.yaml` steps
+Mods are composable configurations that define targets and the content of the resulting images. The complete guide — how a build works, targets, `include`/`breaks` dependencies, and how artifacts get their names — plus the catalog of available mods, lives in [`mods/README.md`](mods/README.md).
 
 ## Verification Without a Privileged Host
 
