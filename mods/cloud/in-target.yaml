@@ -1,0 +1,14 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - cloud-init
+      - cloud-guest-utils
+      - cloud-image-utils
+      - cloud-utils
+      - netplan.io
+      - netplan-generator
+
+  - action: overlay
+    source: files

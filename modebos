@@ -1,0 +1,640 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 Matej Kovac <matej.kovac+modebos@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""
+modebos — Modular Debian Image Builder
+
+Builds Debian OS images using debos with composable "mods".
+Each mod declares its metadata (dependencies, conflicts) in a meta.yaml
+and contributes recipe files (in-rootfs.yaml, in-target.yaml) to the build.
+
+Usage:
+    python3 modebos [mods...] [targets...]
+    python3 modebos server kvm
+    python3 modebos --dry-run -v server
+    python3 modebos --list-mods
+
+Positional arguments are treated as mods; any that have ``type: target``
+in their ``meta.yaml`` are also built as image targets.  When no target is
+given ``rootfs`` is used automatically.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from functools import cache
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+# ── Constants ──────────────────────────────────────────────────────────────
+
+DEFAULT_SUITE = "trixie"
+DEFAULT_ARCH = "amd64"
+DEFAULT_OUTPUT = "./artifacts"
+
+SNAPSHOT_MIRROR_TEMPLATE = "http://snapshot.debian.org/archive/debian/{}T000000Z/"
+
+
+# ── Data classes ───────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class GitInfo:
+    """Version metadata extracted from the git repository."""
+
+    commit: str
+    date: str  # YYYYMMDD
+    snapshot_url: str | None = None
+    epoch: int = 0
+
+
+@dataclass
+class ModMeta:
+    """Information loaded from a mod's meta.yaml file."""
+
+    description: str = ""
+    type: str = "mod"
+    include: list[str] = field(default_factory=list)
+    breaks: list[str] = field(default_factory=list)
+    label: bool = True
+
+
+def get_git_info(repo_dir: Path) -> GitInfo:
+    """
+    Read commit hash, build date, and optional snapshot.debian.org URL
+    from the git repository at *repo_dir*.
+
+    If the working tree is dirty the snapshot URL is suppressed so that
+    non-reproducible builds are not accidentally published.
+    """
+    git_opts: dict[str, Any] = {"text": True, "cwd": repo_dir, "stderr": subprocess.DEVNULL}
+
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], **git_opts).strip()
+    except subprocess.CalledProcessError:
+        commit = "unknown"
+
+    try:
+        subprocess.check_output(["git", "diff", "--quiet", "--ignore-submodules"], **git_opts)
+        clean = True
+    except subprocess.CalledProcessError:
+        clean = False
+    # If the working tree is dirty, use 'wip' as commit identifier
+    if not clean:
+        commit = "wip"
+
+    try:
+        ts = subprocess.check_output(["git", "log", "-1", "--format=%ct", "HEAD"], **git_opts).strip()
+        epoch = int(ts)
+        date = datetime.fromtimestamp(epoch).strftime("%Y%m%d")
+        snapshot = SNAPSHOT_MIRROR_TEMPLATE.format(date)
+    except (subprocess.CalledProcessError, ValueError):
+        epoch = int(datetime.now().timestamp())
+        date = datetime.now().strftime("%Y%m%d")
+        snapshot = None
+
+    return GitInfo(
+        commit=commit,
+        date=date,
+        snapshot_url=None if not clean else snapshot,
+        epoch=epoch,
+    )
+
+
+class ModRegistry:
+    """
+    Discovers, loads (with caching), and resolves mod dependencies.
+
+    All metadata lives under *mods_dir* in ``<name>/meta.yaml`` files.
+    """
+
+    def __init__(self, mods_dir: Path) -> None:
+        self._mods_dir = mods_dir
+
+    # ── discovery ──────────────────────────────────────────────────────
+
+    def list_all(self) -> list[str]:
+        """Return every mod that has a meta.yaml file."""
+        return sorted(d.parent.name for d in self._mods_dir.glob("*/meta.yaml"))
+
+    def list_targets(self) -> set[str]:
+        """Return only the mods whose ``type`` field equals ``target``."""
+        return {name for name in self.list_all() if self._load_meta(name).type == "target"}
+
+    # ── metadata loading (cached to avoid redundant disk I/O) ──────────
+
+    def _load_meta(self, mod: str) -> ModMeta:
+        return self._read_meta_yaml(self._mods_dir, mod)
+
+    @staticmethod
+    @cache
+    def _read_meta_yaml(mods_dir: Path, mod: str) -> ModMeta:
+        """Parse a single meta.yaml. Returns empty ModMeta when absent."""
+        path = mods_dir / mod / "meta.yaml"
+        if not path.exists():
+            return ModMeta()
+        raw = yaml.safe_load(path.read_text())
+        return ModMeta(
+            description=raw.get("description", ""),
+            type=raw.get("type", "mod"),
+            include=raw.get("include", []),
+            breaks=raw.get("breaks", []),
+            label=raw.get("label", True),
+        )
+
+    # ── recipe file lookup ─────────────────────────────────────────────
+
+    def recipe_path(self, mod: str, recipe_name: str) -> Path:
+        return self._mods_dir / mod / recipe_name
+
+    def artifact_label(self, modules: list[str]) -> str:
+        """Comma-joined names of the given mods that aren't targets and are labeled."""
+        targets = self.list_targets()
+        return ",".join(m for m in modules if m not in targets and self._load_meta(m).label)
+
+    # ── dependency resolution ──────────────────────────────────────────
+
+    def resolve(self, mods: list[str]) -> list[str]:
+        resolved: dict[str, None] = {}  # Acts as both ordered output and resulting set
+        visiting: set[str] = set()  # Current DFS stack
+
+        def _visit(mod: str) -> None:
+            if mod in visiting:
+                raise ValueError(f"Circular dependency detected: {mod}")
+            if mod not in resolved:
+                visiting.add(mod)
+                for dep in self._load_meta(mod).include:
+                    _visit(dep)
+                visiting.remove(mod)
+                resolved[mod] = None
+
+        for m in mods:
+            _visit(m)
+
+        universe = set(resolved.keys())
+        for mod in universe:
+            if universe & set(self._load_meta(mod).breaks):
+                raise ValueError(f"Conflict involving: '{mod}'")
+
+        return list(resolved)
+
+    def minimize(self, mods: list[str]) -> list[str]:
+        """Returns the minimal list of *mods* that covers all of them."""
+        requested = set(mods)
+        all_sub_deps: set[str] = set()
+
+        def _gather(mod: str) -> None:
+            for dep in self._load_meta(mod).include:
+                if dep not in all_sub_deps:
+                    all_sub_deps.add(dep)
+                    _gather(dep)
+
+        for m in requested:
+            _gather(m)
+
+        # The minimal set is the items asked for, minus anything triggered implicitly
+        return sorted(list(requested - all_sub_deps))
+
+
+# ── Recipe include builder ─────────────────────────────────────────────────
+
+
+def build_recipe_includes(
+    registry: ModRegistry,
+    mods: list[str],
+    recipe_name: str,
+    indent: int = 0,
+) -> str:
+    """
+    Build ``action: recipe`` YAML entries for every resolved mod that
+    has a file called *recipe_name*.
+
+    Entries are emitted at *indent*-space base indentation so they align
+    with other actions in the shim's ``actions:`` list.
+    """
+    pad = " " * indent
+    entries = []
+    for mod in mods:
+        path = registry.recipe_path(mod, recipe_name)
+        if path.exists():
+            entries.append(
+                f"{pad}- action: recipe\n" f'{pad}  description: "mods/{mod}/{recipe_name}"\n' f"{pad}  recipe: {path}"
+            )
+    return "\n".join(entries)
+
+
+# ── Shim (debos recipe) generator ─────────────────────────────────────────
+
+
+class ShimWriter:
+    """
+    Generates self-contained debos shim YAML files.
+
+    A rootfs shim creates a root filesystem with ``mmdebstrap``,
+    then applies the target recipe.  A target shim unpacks a
+    pre-built rootfs artifact and applies the target recipe.
+    """
+
+    def __init__(
+        self,
+        suite: str,
+        arch: str,
+        version: str,
+        commit: str,
+        mods_name: str,
+    ) -> None:
+        self._suite = suite
+        self._arch = arch
+        self._version = version
+        self._commit = commit
+        self._mods_name = mods_name
+
+    def write_shim(
+        self,
+        target_mod: str,
+        target_recipe: Path,
+        recipe_includes: str,
+        snapshot_url: str | None,
+        shim_dir: Path,
+    ) -> Path:
+        """Render the shim for *target_mod*: rootfs uses mmdebstrap, others unpack it."""
+        if target_mod == "rootfs":
+            return self._write_rootfs_shim(target_mod, target_recipe, recipe_includes, snapshot_url, shim_dir)
+        return self._write_target_shim(target_mod, target_recipe, recipe_includes, shim_dir)
+
+    def _write_rootfs_shim(
+        self,
+        target_mod: str,
+        target_recipe: Path,
+        recipe_includes: str,
+        snapshot_url: str | None,
+        shim_dir: Path,
+    ) -> Path:
+        """Create a rootfs shim that uses mmdebstrap."""
+        path = shim_dir / self._shim_filename(target_mod)
+        snapshot_url = self._mirrors(snapshot_url)
+        content = (
+            f"architecture: {self._arch}\n"
+            "\n"
+            "actions:\n"
+            "  - action: mmdebstrap\n"
+            f'    description: "Create minimal filesystem from {snapshot_url}"\n'
+            f'    mirrors: ["{snapshot_url}"]\n'
+            "    suite: {{ .suite }}\n"
+            "    components: [main, contrib, non-free, non-free-firmware]\n"
+            '    variant: "minbase"\n'
+            "    include:\n"
+            "      - linux-sysctl-defaults\n"
+            "\n"
+            "  - action: run\n"
+            '    description: "Update APT package index inside the chroot"\n'
+            "    chroot: true\n"
+            "    command: apt-get update\n"
+            f"{self._includes_block(recipe_includes)}\n"
+            "  - action: recipe\n"
+            f'    description: "Including final rootfs recipe {target_recipe}"\n'
+            f"    recipe: {target_recipe}\n"
+            f"{self._variables_block()}"
+        )
+        path.write_text(content)
+        return path
+
+    def _write_target_shim(
+        self,
+        target_mod: str,
+        target_recipe: Path,
+        recipe_includes: str,
+        shim_dir: Path,
+    ) -> Path:
+        """
+        Create a target shim that unpacks a rootfs artifact first,
+        then applies the target recipe.
+        """
+        path = shim_dir / self._shim_filename(target_mod)
+        content = (
+            f"architecture: {self._arch}\n"
+            "\n"
+            "actions:\n"
+            "  - action: unpack\n"
+            '    description: "Extract previously built {{ .rootfs }} archive into target image"\n'
+            "    file: {{ .rootfs }}\n"
+            f"{self._includes_block(recipe_includes)}\n"
+            "  - action: recipe\n"
+            f'    description: "Including final target recipe {target_recipe}"\n'
+            f"    recipe: {target_recipe}\n"
+            f"{self._variables_block()}"
+        )
+        path.write_text(content)
+        return path
+
+    # ── internal helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _mirrors(snapshot_url: str | None) -> str:
+        if snapshot_url:
+            return snapshot_url
+        return "http://deb.debian.org/debian"
+
+    @staticmethod
+    def _includes_block(block: str) -> str:
+        """Wrap recipe-include entries between the surrounding actions."""
+        if not block.strip():
+            return ""
+        return "\n" + block + "\n"
+
+    def _variables_block(self) -> str:
+        return (
+            "    variables:\n"
+            f"      suite: {self._suite}\n"
+            f"      version: {self._version}\n"
+            f"      commit: {self._commit}\n"
+            f"      architecture: {self._arch}\n"
+            f"      mods: {self._mods_name}\n"
+        )
+
+    def _shim_filename(self, target_mod: str) -> str:
+        return artifact_name(self._suite, target_mod, self._mods_name, self._version, self._commit) + ".yaml"
+
+
+# ── Debos runner ───────────────────────────────────────────────────────────
+
+
+class DebosRunner:
+    """
+    Invokes ``debos`` with a generated shim recipe, streams the output
+    to both the terminal and a log file, and raises on failure.
+    """
+
+    def __init__(
+        self,
+        script_dir: Path,
+        output_dir: Path,
+        verbose: bool,
+        dry_run: bool,
+    ) -> None:
+        self._script_dir = script_dir
+        self._output_dir = output_dir
+        self._verbose = verbose
+        self._dry_run = dry_run
+
+    def run(
+        self,
+        shim: Path,
+        suite: str,
+        arch: str,
+        version: str,
+        commit: str,
+        mods_name: str,
+        rootfs: str | None = None,
+    ) -> None:
+        cmd = ["debos", "--artifactdir", str(self._output_dir.resolve())]
+        if self._verbose:
+            cmd.extend(["--verbose", "--show-boot"])
+        if self._dry_run:
+            cmd.append("--dry-run")
+        cmd.extend(
+            [
+                "-t",
+                f"suite:{suite}",
+                "-t",
+                f"architecture:{arch}",
+                "-t",
+                f"version:{version}",
+                "-t",
+                f"commit:{commit}",
+                "-t",
+                f"mods:{mods_name}",
+            ]
+        )
+        if rootfs:
+            cmd.extend(["-t", f"rootfs:{rootfs}"])
+        cmd.append(str(shim))
+
+        if self._dry_run:
+            print(f"[DRY RUN] Would run: {' '.join(cmd)}")
+            return
+
+        log_path = shim.with_suffix(".yaml.log")
+        with log_path.open("w") as log:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=self._script_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+            )
+            stdout = proc.stdout
+            if stdout is None:
+                raise RuntimeError(f"Failed to capture stdout for: {cmd}")
+            for line in stdout:
+                print(line, end="")
+                log.write(line)
+            proc.wait()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+        print(f"Kept shim: {shim.name}")
+        print(f"Log: {log_path}")
+
+
+# ── Build orchestration ────────────────────────────────────────────────────
+
+
+def artifact_name(suite: str, target: str, mods_name: str, version: str, commit: str) -> str:
+    """Human-readable name for a build artifact."""
+    parts = [suite, target]
+    if mods_name:
+        parts.append(mods_name)
+    parts.extend([version, commit])
+    return "-".join(parts)
+
+
+def build_target(
+    registry: ModRegistry,
+    script_dir: Path,
+    target_mod: str,
+    resolved: list[str],
+    suite: str,
+    arch: str,
+    version: str,
+    commit: str,
+    output_dir: Path,
+    verbose: bool,
+    rootfs_artifact: str,
+    label_mods: str = "",
+    snapshot_url: str | None = None,
+    dry_run: bool = False,
+) -> None:
+    """
+    Build a single target:
+    1. Generate the debos shim YAML from pre-resolved mods
+    2. Run debos (or print the command in dry-run mode)
+
+    *resolved* is the topological-sorted list of mods (dependencies included)
+    that contribute recipe files to this build.
+    *label_mods* controls naming (filename, print output); when empty,
+    the mods section is omitted from artifact names.
+    """
+    mods_name = label_mods
+
+    # Build recipe includes from the resolved dependency chain
+    recipe_name = "in-rootfs.yaml" if target_mod == "rootfs" else "in-target.yaml"
+    includes = build_recipe_includes(registry, resolved, recipe_name, indent=2)
+
+    # Locate the target's own recipe
+    target_path = registry.recipe_path(target_mod, "target.yaml")
+
+    # Generate shim
+    writer = ShimWriter(suite, arch, version, commit, mods_name)
+    shim = writer.write_shim(target_mod, target_path, includes, snapshot_url, output_dir)
+
+    name = artifact_name(suite, target_mod, mods_name, version, commit)
+    print(f"=== Building {target_mod} ({name}) ===")
+
+    if verbose:
+        print(f"--- Generated shim ({shim.name}): ---")
+        print(shim.read_text())
+        print("--- End of shim ---")
+
+    # Run debos
+    runner = DebosRunner(script_dir, output_dir, verbose, dry_run)
+    runner.run(shim, suite, arch, version, commit, mods_name, rootfs_artifact)
+
+
+# ── CLI entry point ────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Modular Debian Image Builder")
+    parser.add_argument("mods", nargs="*", default=[], help="Module names")
+    parser.add_argument("-s", "--suite", default=DEFAULT_SUITE)
+    parser.add_argument("-a", "--arch", default=DEFAULT_ARCH)
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-n", "--dry-run", action="store_true")
+    parser.add_argument("-m", "--list-mods", action="store_true")
+    parser.add_argument("-t", "--list-targets", action="store_true")
+    args = parser.parse_args()
+
+    script_dir = Path(__file__).parent.resolve()
+    registry = ModRegistry(script_dir / "mods")
+
+    if args.list_mods:
+        for name in registry.list_all():
+            print(name)
+        return
+    if args.list_targets:
+        for name in sorted(registry.list_targets()):
+            print(name)
+        return
+
+    if not args.mods:
+        parser.print_help()
+        sys.exit(1)
+
+    # ── validate all positional args ───────────────────────────────────
+    all_mods = set(registry.list_all())
+    for item in args.mods:
+        if item not in all_mods:
+            print(f"Error: unknown mod '{item}'. Available mods:")
+            print(", ".join(sorted(all_mods)))
+            sys.exit(1)
+
+    # rootfs is built always, even if not mentioned
+    if "rootfs" not in args.mods:
+        args.mods.append("rootfs")
+
+    # list of all targets and modules with all dependencies
+    resolved = registry.resolve(args.mods)
+    # set of all non-target modules
+    nontargets = {m for m in resolved if m not in registry.list_targets()}
+    # set of all target modules
+    targetmods = {m for m in resolved if m in registry.list_targets()}
+
+    # for each target being built (in targetmods), prepare minimalized set of modules
+    # that is, each target artifact name will have its name generated from minimal modules for given target
+    targets: dict[str, list[str]] = {}
+    for target in sorted(targetmods):
+        # minimize() all nontargets plus target:
+        targets[target] = registry.minimize([target] + list(nontargets))
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    git_info = get_git_info(script_dir)
+
+    print(f"=== Building Debian {args.suite} ===")
+    print(f"Version: {git_info.date}")
+    print(f"Commit: {git_info.commit}")
+    print(f"Targets: {', '.join(targets.keys())}")
+    print(f"Resolved (all): {', '.join(resolved)}")
+    print(f"Minimal[rootfs]: {', '.join(sorted(targets['rootfs']))}")
+    for t in targets.keys():
+        if t == "rootfs":
+            continue
+        print(f"Minimal[{t}]: {', '.join(sorted(targets[t]))}")
+
+    if git_info.snapshot_url:
+        print(f"Snapshot: {git_info.snapshot_url}")
+    os.environ["SOURCE_DATE_EPOCH"] = str(git_info.epoch)
+
+    # ── build rootfs once (shared prerequisite) ────────────────────────
+    rootfs_file = (
+        artifact_name(args.suite, "rootfs", registry.artifact_label(targets["rootfs"]), git_info.date, git_info.commit)
+        + ".tar.gz"
+    )
+    if not (output_dir / rootfs_file).exists():
+        build_target(
+            registry,
+            script_dir,
+            "rootfs",
+            resolved,
+            args.suite,
+            args.arch,
+            git_info.date,
+            git_info.commit,
+            output_dir,
+            args.verbose,
+            rootfs_artifact=rootfs_file,
+            label_mods=registry.artifact_label(targets["rootfs"]),
+            snapshot_url=git_info.snapshot_url,
+            dry_run=args.dry_run,
+        )
+
+    # ── build each non-rootfs target ───────────────────────────────────
+    for target in targets.keys():
+        if target == "rootfs":
+            continue
+
+        build_target(
+            registry,
+            script_dir,
+            target,
+            resolved,
+            args.suite,
+            args.arch,
+            git_info.date,
+            git_info.commit,
+            output_dir,
+            args.verbose,
+            rootfs_artifact=rootfs_file,
+            label_mods=registry.artifact_label(targets[target]),
+            snapshot_url=git_info.snapshot_url,
+            dry_run=args.dry_run,
+        )
+
+    # ── done ───────────────────────────────────────────────────────────
+    print("=== Build complete ===")
+    for entry in sorted(output_dir.iterdir()):
+        print(f"{entry.stat().st_size:>10}  {entry.name}")
+
+
+if __name__ == "__main__":
+    main()

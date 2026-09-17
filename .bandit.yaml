@@ -1,0 +1,17 @@
+# https://bandit.readthedocs.io/en/latest/config.html
+# NOTE: passed to bandit via --configfile, so it is parsed as YAML (INI is only
+# auto-discovered for bandit -r . without -c). .bandit is reserved for INI.
+
+# Skip informational/false-positive tests. Real shell-injection tests
+# (B602, B605, B606) remain enabled.
+#   B101  assert used in tests
+#   B404  importing subprocess (required to run git/debos)
+#   B603  subprocess without shell=True (argv is a constant list)
+#   B607  bare-name executable (git/debos from PATH)
+skips: [B101, B404, B603, B607]
+
+# Exclude directories and files
+exclude_dirs:
+  - "**/tests/*"
+  - "**/test_*.py"
+  - "**/*_test.py"

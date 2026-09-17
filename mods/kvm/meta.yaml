@@ -1,0 +1,4 @@
+description: "KVM/QEMU platform"
+type: target
+include: [cloud]
+breaks: []

@@ -1,0 +1,98 @@
+# All hooks run on commit. mypy and bandit are long/expensive, so they can
+# be deferred to `pre-commit run -t pre-push` / a push hook if desired.
+default_install_hook_types: [pre-commit]
+default_stages: [pre-commit]
+
+repos:
+  # ==========================================
+  # FAST & AUTO-FIXING
+  # ==========================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: requirements-txt-fixer
+      - id: check-added-large-files
+      - id: check-shebang-scripts-are-executable
+      - id: no-commit-to-branch
+        args: [--branch, xmaster, --branch, xmain]
+      - id: check-ast
+      - id: check-docstring-first
+      - id: check-json
+      - id: check-toml
+      - id: check-xml
+      - id: pretty-format-json
+        args: [--autofix]
+      - id: debug-statements
+      - id: detect-private-key
+      - id: name-tests-test
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+
+  - repo: https://github.com/psf/black
+    rev: 25.9.0
+    hooks:
+      - id: black
+        args: [--line-length=123]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.1
+    hooks:
+      - id: ruff
+        args: [--fix, --show-fixes, --exit-non-zero-on-fix]
+        exclude: ^tests/unit/test_basic\.py$
+
+  # Go-template-aware yamllint (mods/*/target.yaml are debos Go templates)
+  - repo: local
+    hooks:
+      - id: yamllint
+        name: yamllint (Go-template aware)
+        entry: scripts/yamllint_check.py
+        language: python
+        additional_dependencies: [yamllint==1.37.1]
+        args: [--strict, -c=.yamllint.yaml]
+        types: [yaml]
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint
+        args: [--config, .markdownlint.yaml, --fix]
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
+        args: [--severity=style, -e, SC1090]
+
+  - repo: https://github.com/multicast/restructuredtext-lint
+    rev: v9.9.9
+    hooks:
+      - id: rst-lint
+        files: \.rst$
+
+  # ==========================================
+  # SLOW / EXPENSIVE
+  # ==========================================
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        # Removed 'exclude: ^.*$' so it actually runs
+        additional_dependencies: [types-requests, types-python-dateutil, types-PyYAML]
+        args: [--strict, --ignore-missing-imports]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        args: [--configfile=.bandit.yaml, --recursive, ./]
+        exclude: ^tests/|^other/tests/
+
+  #- repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+  #  rev: v1.3.2
+  #  hooks:
+  #    - id: python-safety-dependencies-check

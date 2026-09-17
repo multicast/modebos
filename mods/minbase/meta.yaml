@@ -1,0 +1,4 @@
+description: "Base layer (debootstrap minbase)"
+type: mod
+include: []
+breaks: []

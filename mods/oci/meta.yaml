@@ -1,0 +1,4 @@
+description: "OCI container image target"
+type: target
+include: [minbase]
+breaks: []

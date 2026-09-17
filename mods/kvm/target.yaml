@@ -1,0 +1,88 @@
+{{- $suite := or .suite "trixie" -}}
+{{- $version := or .version (now | date "20060102") -}}
+{{- $commit := or .commit "unknown" -}}
+{{- $architecture := or .architecture "amd64" -}}
+
+architecture: {{ .architecture }}
+
+actions:
+  - action: image-partition
+    description: "Creating partitions..."
+    imagename: {{ $suite }}-{{ $version }}-{{ $commit }}.img
+    imagesize: 4G
+    partitiontype: gpt
+    mountpoints:
+      - mountpoint: /
+        partition: root
+      - mountpoint: /var/log
+        partition: varlog
+      - mountpoint: /boot/efi
+        partition: efi
+        flags: [boot]
+    partitions:
+      - name: varlog
+        fs: ext4
+        start: 256MB
+        end: 1024MB
+      - name: root
+        fs: btrfs
+        start: 1024MB
+        end: 100%
+      - name: efi
+        fs: vfat
+        start: 0%
+        end: 256MB
+        options: [x-systemd.automount]
+
+  - action: filesystem-deploy
+
+  - action: apt
+    packages:
+      - grub-efi
+      - linux-image-amd64
+      - btrfs-progs
+
+  - action: run
+    description: "Creating manifest..."
+    chroot: true
+    script: scripts/generate-manifest.sh
+
+  - action: run
+    description: Copy manifest and dpkg selections to artifact dir
+    command: |
+      base="{{ $suite }}-kvm{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}"
+      cp "$IMAGEMNTDIR/manifest.txt" "$ARTIFACTDIR/${base}.manifest.txt"
+      cp "$IMAGEMNTDIR/dpkg-selections.txt" "$ARTIFACTDIR/${base}.dpkg-selections.txt"
+
+  - action: run
+    chroot: true
+    command: rm -f /manifest.txt /dpkg-selections.txt /env.txt
+
+  - action: run
+    chroot: true
+    command: grub-install --target=x86_64-efi --no-nvram
+
+  - action: run
+    chroot: true
+    command: mkdir -p /boot/efi/EFI/BOOT && cp /boot/efi/EFI/debian/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI
+
+  - action: overlay
+    source: files
+
+  - action: run
+    chroot: true
+    command: update-grub
+
+  - action: run
+    description: Clean image
+    chroot: true
+    script: scripts/clean-image.sh
+
+  - action: run
+    description: Convert image to qcow2
+    postprocess: true
+    command: qemu-img convert -f raw -O qcow2 -c -o cluster_size=256k ${ARTIFACTDIR}/{{ $suite }}-{{ $version }}-{{ $commit }}.img ${ARTIFACTDIR}/{{ $suite }}-kvm{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.qcow2
+
+  - action: run
+    postprocess: true
+    command: mv ${ARTIFACTDIR}/{{ $suite }}-{{ $version }}-{{ $commit }}.img ${ARTIFACTDIR}/{{ $suite }}-kvm{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.raw

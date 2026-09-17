@@ -1,0 +1,19 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - aptitude
+      - bash-completion
+      - curl
+
+  - action: overlay
+    source: files
+
+  - action: run
+    chroot: true
+    command: chmod +x /usr/local/sbin/9p-boot.sh
+
+  - action: run
+    chroot: true
+    command: systemctl enable 9p-boot.service

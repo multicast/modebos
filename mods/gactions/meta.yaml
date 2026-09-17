@@ -1,0 +1,4 @@
+description: "GitHub Actions tools (ansible, git, nmap, qemu, cloud, etc.)"
+type: mod
+include: [systemd, cloud, kvm]
+breaks: []

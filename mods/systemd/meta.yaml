@@ -1,0 +1,4 @@
+description: "Systemd components and configuration"
+type: mod
+include: [minbase]
+breaks: []

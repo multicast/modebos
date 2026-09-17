@@ -1,0 +1,147 @@
+{{- $suite := or .suite "trixie" -}}
+{{- $version := or .version (now | date "20060102") -}}
+{{- $commit := or .commit "unknown" -}}
+
+architecture: {{ .architecture }}
+
+actions:
+  - action: run
+    description: "Write os-release metadata"
+    chroot: true
+    command: |
+      echo 'PRETTY_NAME="Debian GNU/Linux ({{ $suite }})"' > /etc/os-release
+      echo 'NAME="Debian GNU/Linux"' >> /etc/os-release
+      echo 'VERSION="{{ $version }} ({{ $suite }})"' >> /etc/os-release
+      echo 'VERSION_ID="{{ $version }}"' >> /etc/os-release
+      echo 'VERSION_CODENAME={{ $suite }}' >> /etc/os-release
+      echo 'ID=debian' >> /etc/os-release
+      echo 'HOME_URL="https://www.debian.org/"' >> /etc/os-release
+      echo 'SUPPORT_URL="https://www.debian.org/support"' >> /etc/os-release
+      echo 'BUG_REPORT_URL="https://bugs.debian.org/"' >> /etc/os-release
+
+  - action: run
+    description: "Recreate runtime mountpoint dirs"
+    chroot: true
+    command: |
+      set -e
+      install -d -m 0755 /run
+      install -d -m 1777 /run/lock
+      ln -sfn /run /var/run
+      ln -sfn /run/lock /var/lock
+
+  - action: run
+    description: "Assemble OCI image layout"
+    chroot: true
+    command: |
+      set -e
+
+      epoch="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+      created="$(date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ)"
+
+      mkdir -p /oci-build/blobs/sha256
+
+      tar -C / --exclude=./oci-build --exclude=./sys --exclude=./proc --exclude=./dev \
+        --sort=name --numeric-owner --owner=0 --group=0 --mtime="@${epoch}" -cf /oci-build/layer.tar .
+
+      diff_id="$(sha256sum /oci-build/layer.tar | cut -d' ' -f1)"
+
+      gzip -n -f /oci-build/layer.tar
+      layer_digest="$(sha256sum /oci-build/layer.tar.gz | cut -d' ' -f1)"
+      layer_size="$(wc -c < /oci-build/layer.tar.gz)"
+      mv /oci-build/layer.tar.gz "/oci-build/blobs/sha256/${layer_digest}"
+
+      cat > /oci-build/config.json <<EOF
+      {
+        "architecture": "{{ .architecture }}",
+        "os": "linux",
+        "created": "${created}",
+        "config": {
+          "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          ],
+          "WorkingDir": "/",
+          "Cmd": [
+            "/bin/bash"
+          ],
+          "Labels": {
+            "org.opencontainers.image.title": "Debian GNU/Linux ({{ $suite }})",
+            "org.opencontainers.image.version": "{{ $version }}-{{ $commit }}",
+            "org.opencontainers.image.revision": "{{ $commit }}",
+            "org.opencontainers.image.created": "${created}"
+          }
+        },
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:${diff_id}"
+          ]
+        },
+        "history": [
+          {
+            "created": "${created}",
+            "created_by": "modebos oci target"
+          }
+        ]
+      }
+      EOF
+
+      config_digest="$(sha256sum /oci-build/config.json | cut -d' ' -f1)"
+      config_size="$(wc -c < /oci-build/config.json)"
+      mv /oci-build/config.json "/oci-build/blobs/sha256/${config_digest}"
+
+      cat > /oci-build/manifest.json <<EOF
+      {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {
+          "mediaType": "application/vnd.oci.image.config.v1+json",
+          "digest": "sha256:${config_digest}",
+          "size": ${config_size}
+        },
+        "layers": [
+          {
+            "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+            "digest": "sha256:${layer_digest}",
+            "size": ${layer_size}
+          }
+        ]
+      }
+      EOF
+
+      manifest_digest="$(sha256sum /oci-build/manifest.json | cut -d' ' -f1)"
+      manifest_size="$(wc -c < /oci-build/manifest.json)"
+      mv /oci-build/manifest.json "/oci-build/blobs/sha256/${manifest_digest}"
+
+      cat > /oci-build/index.json <<EOF
+      {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "manifests": [
+          {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:${manifest_digest}",
+            "size": ${manifest_size},
+            "platform": {
+              "architecture": "{{ .architecture }}",
+              "os": "linux"
+            },
+            "annotations": {
+              "org.opencontainers.image.ref.name": "debian:{{ $suite }}"
+            }
+          }
+        ]
+      }
+      EOF
+
+      printf '{"imageLayoutVersion":"1.0.0"}\n' > /oci-build/oci-layout
+
+      tar -C /oci-build --sort=name --numeric-owner --owner=0 --group=0 --mtime="@${epoch}" -cf /oci-image.tar .
+      gzip -n -f /oci-image.tar
+
+  - action: run
+    description: "Move OCI image archive to artifact dir"
+    command: |
+      set -e
+      base="{{ $suite }}-oci{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}"
+      mv "$ROOTDIR/oci-image.tar.gz" "$ARTIFACTDIR/${base}.tar.gz"
+      rm -rf "$ROOTDIR/oci-build"

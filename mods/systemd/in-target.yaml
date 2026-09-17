@@ -1,0 +1,10 @@
+architecture: amd64
+
+actions:
+  - action: run
+    chroot: true
+    command: mkdir -p /run/systemd/network
+
+  - action: run
+    chroot: true
+    script: scripts/setup-networking.sh

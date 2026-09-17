@@ -1,0 +1,4 @@
+description: "Cloud guest tools (cloud-init, qemu-guest-agent)"
+type: mod
+include: [server]
+breaks: []

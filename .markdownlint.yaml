@@ -1,0 +1,10 @@
+# https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+
+# MD013/line-length - off (no line length limit)
+MD013: false
+
+# MD024/no-duplicate-heading - off
+MD024: false
+
+# MD043/required-headings - off
+MD043: false

@@ -1,0 +1,41 @@
+{{- $suite := or .suite "trixie" -}}
+{{- $version := or .version (now | date "20060102") -}}
+{{- $commit := or .commit "unknown" -}}
+
+architecture: {{ .architecture }}
+
+actions:
+  - action: run
+    description: Create default user
+    chroot: true
+    script: scripts/debian.sh
+
+  - action: overlay
+    description: Deploy files for default user
+    source: files
+
+  - action: run
+    description: Clean rootfs image
+    chroot: true
+    script: scripts/clean-image.sh
+
+  - action: run
+    description: Create rootfs manifest
+    chroot: true
+    script: scripts/generate-manifest.sh
+
+  - action: run
+    description: Copy manifest files to artifact dir
+    command: |
+      base="{{ $suite }}-rootfs{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}"
+      cp "$ROOTDIR/env.txt" "$ARTIFACTDIR/${base}.env.txt"
+      cp "$ROOTDIR/manifest.txt" "$ARTIFACTDIR/${base}.manifest.txt"
+      cp "$ROOTDIR/dpkg-selections.txt" "$ARTIFACTDIR/${base}.dpkg-selections.txt"
+
+  - action: run
+    chroot: true
+    command: rm -f /manifest.txt /dpkg-selections.txt /env.txt
+
+  - action: pack
+    file: {{ $suite }}-rootfs{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.tar.gz
+    compression: gz

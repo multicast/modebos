@@ -1,0 +1,26 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - libnss-myhostname
+      - libnss-resolve
+      - libnss-systemd
+      - libpam-systemd
+      - systemd
+      - systemd-resolved
+      - systemd-sysv
+      - systemd-timesyncd
+      - udev
+
+  - action: run
+    chroot: true
+    command: mkdir -p /run/systemd/network
+
+  - action: run
+    chroot: true
+    command: systemctl enable systemd-networkd
+
+  - action: run
+    chroot: true
+    command: systemctl enable systemd-resolved

@@ -1,0 +1,4 @@
+description: "Server packages (systemd, ssh, networking)"
+type: mod
+include: [systemd]
+breaks: []

@@ -1,0 +1,4 @@
+description: "Static network config for QEMU user-mode networking (10.0.2.15)"
+type: mod
+include: [systemd, kvm]
+breaks: []

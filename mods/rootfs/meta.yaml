@@ -1,0 +1,4 @@
+description: "Rootfs tarball target"
+type: target
+include: [minbase]
+breaks: []

@@ -1,0 +1,18 @@
+architecture: amd64
+
+actions:
+  - action: run
+    chroot: true
+    command: apt-get update
+
+  - action: apt
+    packages:
+      - adduser
+      - udev
+      - less
+      - locales
+      - zstd
+
+  - action: run
+    chroot: true
+    command: echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen

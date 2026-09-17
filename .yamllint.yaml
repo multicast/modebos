@@ -1,0 +1,21 @@
+---
+extends: default
+
+yaml-files:
+  - '*.yaml'
+  - '*.yml'
+  - '.yamllint'
+
+ignore: |
+  .ignore-this/*
+
+rules:
+  line-length: disable
+  document-start: disable
+  indentation: enable
+  comments-indentation: disable
+  comments: disable
+  empty-lines:
+    max-start: 1
+  truthy:
+    level: warning

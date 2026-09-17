@@ -1,0 +1,5 @@
+description: "Production-ready build marker: conflicts with qemunet and lab"
+type: mod
+include: []
+breaks: [qemunet, lab]
+label: false

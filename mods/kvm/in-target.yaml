@@ -1,0 +1,6 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - qemu-guest-agent

@@ -1,0 +1,4 @@
+description: "Lab environment: auto-detects 9p mount tag and mounts it at /mnt/nine, runs boot.sh if present"
+type: mod
+include: [kvm]
+breaks: [prod]

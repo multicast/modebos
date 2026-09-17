@@ -1,0 +1,14 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - acl
+      - iproute2
+      - iputils-ping
+      - net-tools
+      - openssh-server
+      - sudo
+
+  - action: overlay
+    source: files
