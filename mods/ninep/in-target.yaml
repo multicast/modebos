@@ -1,0 +1,13 @@
+architecture: amd64
+
+actions:
+  - action: overlay
+    source: files
+
+  - action: run
+    chroot: true
+    command: chmod +x /usr/local/sbin/mount-workspace.sh
+
+  - action: run
+    chroot: true
+    command: systemctl enable mount-workspace.service
