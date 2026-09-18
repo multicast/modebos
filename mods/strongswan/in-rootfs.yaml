@@ -1,0 +1,20 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - strongswan
+      - strongswan-pki
+      - libstrongswan-extra-plugins
+      - libcharon-extra-plugins
+      - strongswan-charon
+      - iproute2
+      - iptables
+
+  - action: run
+    chroot: true
+    command: sysctl -w net.ipv4.ip_forward=1
+
+  - action: run
+    chroot: true
+    command: echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-ipsec.conf

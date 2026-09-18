@@ -1,0 +1,4 @@
+description: "StrongSwan IPsec client image"
+type: mod
+include: [kvm]
+breaks: []
