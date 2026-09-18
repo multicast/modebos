@@ -5,6 +5,7 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <qcow2-file> [mount-tag [shared-dir]]"
     echo "  If mount-tag is given, shared-dir (default: .) is shared into the VM via 9p."
     echo "  If mount-tag is omitted, no shared directory is mounted."
+    echo "  Set VM_CPU (default: 2), VM_MEMORY in GB (default: 1), SSH_PORT (default: auto)."
     exit 1
 fi
 
@@ -13,6 +14,7 @@ case "$1" in
         echo "Usage: $0 <qcow2-file> [mount-tag [shared-dir]]"
         echo "  If mount-tag is given, shared-dir (default: .) is shared into the VM via 9p."
         echo "  If mount-tag is omitted, no shared directory is mounted."
+        echo "  Set VM_CPU (default: 2), VM_MEMORY in GB (default: 1), SSH_PORT (default: auto)."
         exit 0
         ;;
 esac
@@ -20,14 +22,15 @@ esac
 BASE="$(realpath "$1")"
 TAG="${2:-}"
 SHARE="${3:-}"
-SNAP="${BASE%.qcow2}-snap.qcow2"
-SNAP_ESC="${SNAP//,/,,}"
-TMPDIR_shared=""
 
 if [ ! -f "$BASE" ]; then
     echo "Error: file not found: $BASE"
     exit 1
 fi
+
+SNAP="$(mktemp "${BASE%.qcow2}-snap.XXXXXX.qcow2")"
+SNAP_ESC="${SNAP//,/,,}"
+TMPDIR_shared=""
 
 cleanup() {
     if [ -f "$SNAP" ]; then
@@ -53,16 +56,18 @@ else
     VIRTFS=(-virtfs "local,path=$TMPDIR_shared,mount_tag=scratch,security_model=none")
 fi
 
-qemu_smp="${qemu_smp:-2}"
-qemu_memory="${qemu_memory:-1024}"
+VM_CPU="${VM_CPU:-2}"
+VM_MEMORY="${VM_MEMORY:-1}"
+SSH_PORT="${SSH_PORT:-$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1])" 2>/dev/null || echo 2222)}"
 
 echo "Creating snapshot: $SNAP"
 qemu-img create -f qcow2 -b "$BASE" -F qcow2 "$SNAP"
 
 echo "Starting VM..."
-qemu-system-x86_64 -accel kvm -cpu host -smp "$qemu_smp" -m "$qemu_memory" \
+echo "SSH: ssh -p $SSH_PORT debian@localhost"
+qemu-system-x86_64 -accel kvm -cpu host -smp "$VM_CPU" -m "${VM_MEMORY}G" \
     -bios /usr/share/qemu/OVMF.fd \
-    -netdev user,id=net0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=net0 \
+    -netdev user,id=net0,hostfwd=tcp::"${SSH_PORT}"-:22 -device virtio-net-pci,netdev=net0 \
     -serial stdio \
     "${VIRTFS[@]}" \
     -drive format=qcow2,file="$SNAP_ESC"
