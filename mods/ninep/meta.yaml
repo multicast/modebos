@@ -1,0 +1,4 @@
+description: "9p workspace mount: systemd unit to mount /workspace from host via virtio-9p"
+type: mod
+include: [kvm]
+breaks: []

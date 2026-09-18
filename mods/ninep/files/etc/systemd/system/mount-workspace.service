@@ -1,0 +1,11 @@
+[Unit]
+Description=Mount host /workspace via 9p
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/mount-workspace.sh
+
+[Install]
+WantedBy=multi-user.target
