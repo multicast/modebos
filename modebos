@@ -37,6 +37,7 @@ import yaml
 DEFAULT_SUITE = "trixie"
 DEFAULT_ARCH = "amd64"
 DEFAULT_OUTPUT = "./artifacts"
+DEFAULT_SCRATCH_SIZE = "12G"
 
 SNAPSHOT_MIRROR_TEMPLATE = "http://snapshot.debian.org/archive/debian/{}T000000Z/"
 
@@ -373,15 +374,15 @@ class DebosRunner:
 
     def __init__(
         self,
-        script_dir: Path,
         output_dir: Path,
         verbose: bool,
         dry_run: bool,
+        scratch_size: str = DEFAULT_SCRATCH_SIZE,
     ) -> None:
-        self._script_dir = script_dir
         self._output_dir = output_dir
         self._verbose = verbose
         self._dry_run = dry_run
+        self._scratch_size = scratch_size
 
     def run(
         self,
@@ -393,7 +394,15 @@ class DebosRunner:
         mods_name: str,
         rootfs: str | None = None,
     ) -> None:
-        cmd = ["debos", "--artifactdir", str(self._output_dir.resolve())]
+        output_dir = self._output_dir.resolve()
+        scratch_dir = output_dir / "scratch"
+        cmd = [
+            "debos",
+            "--artifactdir",
+            str(output_dir),
+            "--scratchsize",
+            self._scratch_size,
+        ]
         if self._verbose:
             cmd.extend(["--verbose", "--show-boot"])
         if self._dry_run:
@@ -420,11 +429,12 @@ class DebosRunner:
             print(f"[DRY RUN] Would run: {' '.join(cmd)}")
             return
 
+        scratch_dir.mkdir(parents=True, exist_ok=True)
         log_path = shim.with_suffix(".yaml.log")
         with log_path.open("w") as log:
             proc = subprocess.Popen(
                 cmd,
-                cwd=self._script_dir,
+                cwd=scratch_dir,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -504,7 +514,7 @@ def build_target(
         print("--- End of shim ---")
 
     # Run debos
-    runner = DebosRunner(script_dir, output_dir, verbose, dry_run)
+    runner = DebosRunner(output_dir, verbose, dry_run)
     runner.run(shim, suite, arch, version, commit, mods_name, rootfs_artifact)
 
 

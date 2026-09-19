@@ -65,6 +65,8 @@ Generated files are placed in `./artifacts/` by default:
 - Target images, e.g. KVM `.raw`/`.img` files and OCI container archives (`*.tar.gz`)
 - Shim YAML recipes, kept for debugging, plus a `.yaml.log` per build
 
+`debos` runs with its scratch space backed by a sparse `12G` disk image under `artifacts/scratch/`, so builds are bounded by the artifact directory's filesystem rather than the fakemachine's RAM.
+
 `artifacts/` is git-ignored. Filenames follow the scheme documented in [`mods/README.md`](mods/README.md#artifact-naming).
 
 ## Modules
