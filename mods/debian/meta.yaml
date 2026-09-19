@@ -1,0 +1,4 @@
+description: "Default debian user and home directory"
+type: mod
+include: [minbase]
+breaks: []

@@ -561,8 +561,8 @@ def main() -> None:
     if "rootfs" not in args.mods:
         args.mods.append("rootfs")
 
-    # list of all targets and modules with all dependencies
-    resolved = registry.resolve(args.mods)
+    ordered_mods = ["rootfs"] + [m for m in args.mods if m != "rootfs"]
+    resolved = registry.resolve(ordered_mods)
     # set of all non-target modules
     nontargets = {m for m in resolved if m not in registry.list_targets()}
     # set of all target modules
@@ -573,7 +573,7 @@ def main() -> None:
     targets: dict[str, list[str]] = {}
     for target in sorted(targetmods):
         # minimize() all nontargets plus target:
-        targets[target] = registry.minimize([target] + list(nontargets))
+        targets[target] = registry.minimize([target, "rootfs"] + list(nontargets))
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -585,11 +585,11 @@ def main() -> None:
     print(f"Commit: {git_info.commit}")
     print(f"Targets: {', '.join(targets.keys())}")
     print(f"Resolved (all): {', '.join(resolved)}")
-    print(f"Minimal[rootfs]: {', '.join(sorted(targets['rootfs']))}")
+    print(f"Minimal[rootfs]: {registry.artifact_label(targets['rootfs'])}")
     for t in targets.keys():
         if t == "rootfs":
             continue
-        print(f"Minimal[{t}]: {', '.join(sorted(targets[t]))}")
+        print(f"Minimal[{t}]: {registry.artifact_label(targets[t])}")
 
     if git_info.snapshot_url:
         print(f"Snapshot: {git_info.snapshot_url}")

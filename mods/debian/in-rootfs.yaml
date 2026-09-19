@@ -1,0 +1,14 @@
+architecture: amd64
+
+actions:
+  - action: apt
+    packages:
+      - adduser
+      - sudo
+
+  - action: run
+    chroot: true
+    script: scripts/debian.sh
+
+  - action: overlay
+    source: files

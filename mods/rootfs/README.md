@@ -3,4 +3,4 @@
 
 # rootfs
 
-Root filesystem tarball target: creates the default user with its overlay home, cleans the image for reproducibility, generates manifest/env/dpkg-selections files next to the artifact, and packs the whole tree into `suite-rootfs-...-tar.gz`. Depends on [minbase](../minbase/README.md).
+Root filesystem tarball target: cleans the image for reproducibility, generates manifest/env/dpkg-selections files next to the artifact, and packs the whole tree into `suite-rootfs-...-tar.gz`. Depends on [minbase](../minbase/README.md) and [debian](../debian/README.md).

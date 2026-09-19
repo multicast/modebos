@@ -89,6 +89,7 @@ With `modebos --dry-run -v ...` you can inspect the exact filenames, the rendere
 | Mod | Type | Description | Links |
 |-----|------|-------------|-------|
 | [minbase](minbase/README.md) | mod | Base layer; depended on by everything | |
+| [debian](debian/README.md) | mod | Default `debian` user and home overlay | includes [minbase](minbase/README.md) |
 | [systemd](systemd/README.md) | mod | Systemd components and configuration | includes [minbase](minbase/README.md) |
 | [server](server/README.md) | mod | Server packages (systemd, ssh, networking) | includes [systemd](systemd/README.md) |
 | [cloud](cloud/README.md) | mod | Cloud guest tools (cloud-init, qemu-guest-agent) | includes [server](server/README.md) |
@@ -96,6 +97,6 @@ With `modebos --dry-run -v ...` you can inspect the exact filenames, the rendere
 | [qemunet](qemunet/README.md) | mod | Static network config for QEMU user-mode networking | includes [systemd](systemd/README.md), [kvm](kvm/README.md) |
 | [lab](lab/README.md) | mod | Lab environment (9p mount detection, boot.sh) | includes [kvm](kvm/README.md); breaks [prod](prod/README.md) |
 | [prod](prod/README.md) | mod | Production-build marker (`label: false`) | breaks [qemunet](qemunet/README.md), [lab](lab/README.md) |
-| [rootfs](rootfs/README.md) | target | Root filesystem tarball target | includes [minbase](minbase/README.md) |
+| [rootfs](rootfs/README.md) | target | Root filesystem tarball target | includes [minbase](minbase/README.md), [debian](debian/README.md) |
 | [kvm](kvm/README.md) | target | KVM/QEMU platform image target | includes [cloud](cloud/README.md) |
 | [oci](oci/README.md) | target | OCI container image target | includes [minbase](minbase/README.md) |

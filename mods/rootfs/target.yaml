@@ -6,15 +6,6 @@ architecture: {{ .architecture }}
 
 actions:
   - action: run
-    description: Create default user
-    chroot: true
-    script: scripts/debian.sh
-
-  - action: overlay
-    description: Deploy files for default user
-    source: files
-
-  - action: run
     description: Clean rootfs image
     chroot: true
     script: scripts/clean-image.sh
