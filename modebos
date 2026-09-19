@@ -423,7 +423,7 @@ class DebosRunner:
         )
         if rootfs:
             cmd.extend(["-t", f"rootfs:{rootfs}"])
-        cmd.append(str(shim))
+        cmd.append(str(shim.resolve()))
 
         if self._dry_run:
             print(f"[DRY RUN] Would run: {' '.join(cmd)}")
