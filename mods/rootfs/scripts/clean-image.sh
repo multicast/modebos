@@ -7,6 +7,8 @@ rm -f /etc/machine-id /etc/hostname /var/lib/dbus/machine-id
 touch /etc/machine-id /etc/hostname
 chown -R debian:debian /home/debian
 
+py3clean /usr/ || true
+
 rm -f \
   /var/log/alternatives.log \
   /var/log/bootstrap.log \
