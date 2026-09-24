@@ -1,0 +1,30 @@
+architecture: {{ .architecture }}
+
+actions:
+  - action: image-partition
+    description: "Creating partitions..."
+    imagename: {{ .suite }}-{{ .version }}-{{ .commit }}.img
+    imagesize: 4G
+    partitiontype: gpt
+    mountpoints:
+      - mountpoint: /
+        partition: root
+      - mountpoint: /var/log
+        partition: varlog
+      - mountpoint: /boot/efi
+        partition: efi
+        flags: [boot]
+    partitions:
+      - name: varlog
+        fs: ext4
+        start: 256MB
+        end: 1024MB
+      - name: root
+        fs: btrfs
+        start: 1024MB
+        end: 100%
+      - name: efi
+        fs: vfat
+        start: 0%
+        end: 256MB
+        options: [x-systemd.automount]
