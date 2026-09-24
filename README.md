@@ -28,6 +28,7 @@ Positional arguments are mod names that must match `mods/*` directory names exac
 - `-o, --output DIR` — artifact output directory (default `./artifacts`)
 - `-s, --suite NAME` — Debian suite (default `trixie`)
 - `-a, --arch NAME` — architecture (default `amd64`)
+- `-p, --param TARGET:KEY=VALUE` — pass target-specific parameter (e.g., `-p kvm:partition_scheme=podman`)
 - `-h, --help` — show usage
 
 With no arguments, help is printed and the run aborts. Unknown mod names abort with the list of available mods.
@@ -43,6 +44,9 @@ With no arguments, help is printed and the run aborts. Unknown mod names abort w
 
 # Build KVM image (builds rootfs first)
 ./modebos minbase server cloud kvm
+
+# Build KVM image with Podman partitioning scheme
+./modebos minbase server cloud kvm -p kvm:partition_scheme=podman
 
 # Build OCI container image
 ./modebos minbase server oci

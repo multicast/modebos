@@ -249,12 +249,14 @@ class ShimWriter:
         version: str,
         commit: str,
         mods_name: str,
+        target_params: dict[str, str] | None = None,
     ) -> None:
         self._suite = suite
         self._arch = arch
         self._version = version
         self._commit = commit
         self._mods_name = mods_name
+        self._target_params = target_params or {}
 
     def write_shim(
         self,
@@ -350,7 +352,7 @@ class ShimWriter:
         return "\n" + block + "\n"
 
     def _variables_block(self) -> str:
-        return (
+        variables = (
             "    variables:\n"
             f"      suite: {self._suite}\n"
             f"      version: {self._version}\n"
@@ -358,6 +360,10 @@ class ShimWriter:
             f"      architecture: {self._arch}\n"
             f"      mods: {self._mods_name}\n"
         )
+        # Add target-specific parameters
+        for key, value in self._target_params.items():
+            variables += f"      {key}: {value}\n"
+        return variables
 
     def _shim_filename(self, target_mod: str) -> str:
         return artifact_name(self._suite, target_mod, self._mods_name, self._version, self._commit) + ".yaml"
@@ -393,6 +399,7 @@ class DebosRunner:
         commit: str,
         mods_name: str,
         rootfs: str | None = None,
+        target_params: dict[str, str] | None = None,
     ) -> None:
         output_dir = self._output_dir.resolve()
         scratch_dir = output_dir / "scratch"
@@ -423,6 +430,10 @@ class DebosRunner:
         )
         if rootfs:
             cmd.extend(["-t", f"rootfs:{rootfs}"])
+        # Add target-specific parameters
+        if target_params:
+            for key, value in target_params.items():
+                cmd.extend(["-t", f"{key}:{value}"])
         cmd.append(str(shim.resolve()))
 
         if self._dry_run:
@@ -481,6 +492,7 @@ def build_target(
     label_mods: str = "",
     snapshot_url: str | None = None,
     dry_run: bool = False,
+    target_params: dict[str, str] | None = None,
 ) -> None:
     """
     Build a single target:
@@ -502,7 +514,7 @@ def build_target(
     target_path = registry.recipe_path(target_mod, "target.yaml")
 
     # Generate shim
-    writer = ShimWriter(suite, arch, version, commit, mods_name)
+    writer = ShimWriter(suite, arch, version, commit, mods_name, target_params or {})
     shim = writer.write_shim(target_mod, target_path, includes, snapshot_url, output_dir)
 
     name = artifact_name(suite, target_mod, mods_name, version, commit)
@@ -531,6 +543,9 @@ def main() -> None:
     parser.add_argument("-n", "--dry-run", action="store_true")
     parser.add_argument("-m", "--list-mods", action="store_true")
     parser.add_argument("-t", "--list-targets", action="store_true")
+    parser.add_argument(
+        "-p", "--param", action="append", default=[], help="Target-specific parameters (format: target:key=value)"
+    )
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent.resolve()
@@ -544,6 +559,18 @@ def main() -> None:
         for name in sorted(registry.list_targets()):
             print(name)
         return
+
+    # Parse target-specific parameters (format: target:key=value)
+    target_params: dict[str, dict[str, str]] = {}
+    for param in args.param:
+        if ":" not in param or "=" not in param:
+            print(f"Error: invalid parameter format '{param}'. Expected target:key=value")
+            sys.exit(1)
+        target_part, rest = param.split(":", 1)
+        key, value = rest.split("=", 1)
+        if target_part not in target_params:
+            target_params[target_part] = {}
+        target_params[target_part][key] = value
 
     if not args.mods:
         parser.print_help()
@@ -574,6 +601,19 @@ def main() -> None:
     for target in sorted(targetmods):
         # minimize() all nontargets plus target:
         targets[target] = registry.minimize([target, "rootfs"] + list(nontargets))
+
+    # Handle partition scheme parameter for kvm target
+    if "kvm" in targetmods:
+        # Use default scheme if none specified, or use the one provided
+        scheme_name = target_params.get("kvm", {}).get("partition_scheme", "default")
+        scheme_file = script_dir / "mods" / "kvm" / "partition-schemes" / f"{scheme_name}.yaml"
+        if not scheme_file.exists():
+            print(f"Error: partition scheme file not found: {scheme_file}")
+            sys.exit(1)
+        # Just pass the scheme name as a variable
+        if "kvm" not in target_params:
+            target_params["kvm"] = {}
+        target_params["kvm"]["partition_scheme"] = scheme_name
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -616,6 +656,7 @@ def main() -> None:
             label_mods=registry.artifact_label(targets["rootfs"]),
             snapshot_url=git_info.snapshot_url,
             dry_run=args.dry_run,
+            target_params=target_params.get("rootfs"),
         )
 
     # ── build each non-rootfs target ───────────────────────────────────
@@ -638,6 +679,7 @@ def main() -> None:
             label_mods=registry.artifact_label(targets[target]),
             snapshot_url=git_info.snapshot_url,
             dry_run=args.dry_run,
+            target_params=target_params.get(target),
         )
 
     # ── done ───────────────────────────────────────────────────────────
