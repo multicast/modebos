@@ -3,6 +3,7 @@ architecture: amd64
 actions:
   - action: apt
     packages:
+      - dbus-user-session
       - libnss-myhostname
       - libnss-resolve
       - libnss-systemd
