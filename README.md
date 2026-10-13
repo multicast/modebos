@@ -24,9 +24,10 @@ Positional arguments are mod names that must match `mods/*` directory names exac
 - `-m, --list-mods` — list available mods and exit (note: this is NOT a mods flag)
 - `-t, --list-targets` — list target mods and exit
 - `-n, --dry-run` — resolve mods and generate shims without running debos
+- `--reproducible` — pin apt sources to a snapshot.debian.org archive dated with the git commit (requires a clean working tree; without it, plain upstream deb.debian.org sources are used)
 - `-v, --verbose` — print generated shims and stream debos output
 - `-o, --output DIR` — artifact output directory (default `./artifacts`)
-- `-s, --suite NAME` — Debian suite (default `trixie`)
+- `-s, --suite NAME` — Debian suite (default `testing`)
 - `-a, --arch NAME` — architecture (default `amd64`)
 - `-p, --param TARGET:KEY=VALUE` — pass target-specific parameter (e.g., `-p kvm:partition_scheme=podman`)
 - `-h, --help` — show usage
@@ -98,7 +99,7 @@ Full builds require a privileged environment, e.g. `docker run --cap-add=SYS_ADM
 
 Version metadata is derived from git: `version` is the last commit's date (`YYYYMMDD`), `commit` is the short hash - or `wip` when the working tree is dirty. `SOURCE_DATE_EPOCH` is exported and used to make timestamps in produced images reproducible.
 
-When the working tree is clean, `modebos` pins the package mirror to a snapshot.debian.org archive for a reproducible package set.
+Snapshot pinning is opt-in via `--reproducible`. With the flag on a clean working tree, `modebos` pins the package mirror to a snapshot.debian.org archive dated with the git commit. With the flag on a dirty tree, a warning is printed on stderr and the upstream `deb.debian.org` mirror is used instead — reproducibility is not guaranteed. Without the flag, plain upstream `deb.debian.org` sources are used.
 
 ## Developer Notes
 

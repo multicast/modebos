@@ -1,4 +1,4 @@
-{{- $suite := or .suite "trixie" -}}
+{{- $suite := or .suite "testing" -}}
 {{- $version := or .version (now | date "20060102") -}}
 {{- $commit := or .commit "unknown" -}}
 {{- $architecture := or .architecture "amd64" -}}

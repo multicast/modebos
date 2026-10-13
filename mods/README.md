@@ -72,14 +72,14 @@ Every artifact (and its debos shim) is named
 <suite>-<target>-<mods>-<version>-<commit>.yaml
 ```
 
-e.g. `trixie-kvm-qemunet-20260917-e51bb5d.yaml` for `modebos qemunet kvm`.
+e.g. `testing-kvm-qemunet-20260917-e51bb5d.yaml` for `modebos qemunet kvm`.
 
 - `suite`, `version`, `commit` — Debian suite, build date `YYYYMMDD`, and short git hash (`wip` while the tree is dirty).
 - `target` — the target mod producing the artifact (`rootfs`, `kvm`, `oci`).
 - `mods` — **not** the raw command line. modebos computes, per target, the minimal set of mods you actually asked for: the resolved dependency chain, minus anything that is pulled in as a (transitive) dependency of something else you named, plus the current target. This is the "Minimal[x]" line in the build output.
   - targets are never part of the mods label (the target already has its own slot).
   - mods with `label: false` (like `prod`) are excluded, so they act as markers that don't appear in filenames.
-  - when the label is empty, the `mods` section is omitted entirely (`trixie-rootfs-20260917-e51bb5d.tar.gz`).
+  - when the label is empty, the `mods` section is omitted entirely (`testing-rootfs-20260917-e51bb5d.tar.gz`).
   - multiple mods are comma-joined, and the dash-split parts are `suite`, `target`, `mods`, `version`, `commit` — hence no `-` may appear inside a mod name.
 
 With `modebos --dry-run -v ...` you can inspect the exact filenames, the rendered shim, and the `-t mods:` and `-t rootfs:` variables before committing to a real build.

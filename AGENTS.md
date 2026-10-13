@@ -28,7 +28,7 @@ The commands are in `README.md` under "Verification Without a Privileged Host". 
 ## Git Info and Versioning
 
 - `version` = last commit's date as `YYYYMMDD`; `commit` = short hash (from `git log -1 --format=%ct`).
-- A dirty working tree changes `commit` to `wip` — expect `-<date>-wip` in artifact names; it also suppresses snapshot.debian.org mirroring (reproducibility is only guaranteed from a clean tree).
+- A dirty working tree changes `commit` to `wip` — expect `-<date>-wip` in artifact names. Snapshot mirroring is now opt-in via `--reproducible` and only applies with a clean tree; reproducibility is only guaranteed when built with `--reproducible` on a clean tree.
 - `SOURCE_DATE_EPOCH` is derived from the git commit and exported for reproducibility. `mods/rootfs/scripts/clean-image.sh` clears machine-id/hostname, apt caches, and logs, then rewrites all mtimes to it.
 
 ## Pre-commit
