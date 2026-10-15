@@ -27,6 +27,24 @@ actions:
     chroot: true
     command: rm -f /manifest.txt /dpkg-selections.txt /env.txt
 
+{{- if ne .reproducible "true" }}
+
+  - action: run
+    description: Point APT at rolling upstream Debian sources
+    chroot: true
+    command: |
+      rm -f /etc/apt/sources.list
+      mkdir -p /etc/apt/sources.list.d
+      cat > /etc/apt/sources.list.d/debian.sources <<EOF
+      Types: deb
+      URIs: http://deb.debian.org/debian
+      Suites: {{ $suite }}
+      Components: main contrib non-free non-free-firmware
+      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+      EOF
+
+{{- end }}
+
   - action: pack
     file: {{ $suite }}-rootfs{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.tar.gz
     compression: gz

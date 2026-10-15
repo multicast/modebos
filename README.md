@@ -24,7 +24,7 @@ Positional arguments are mod names that must match `mods/*` directory names exac
 - `-m, --list-mods` — list available mods and exit (note: this is NOT a mods flag)
 - `-t, --list-targets` — list target mods and exit
 - `-n, --dry-run` — resolve mods and generate shims without running debos
-- `--reproducible` — pin apt sources to a snapshot.debian.org archive dated with the git commit (requires a clean working tree; without it, plain upstream deb.debian.org sources are used)
+- `--reproducible` — keep the VERSION-dated snapshot.debian.org source list in the resulting image (requires a clean working tree; without it the image is repointed at the rolling upstream deb.debian.org mirror)
 - `-v, --verbose` — print generated shims and stream debos output
 - `-o, --output DIR` — artifact output directory (default `./artifacts`)
 - `-s, --suite NAME` — Debian suite (default `testing`)
@@ -97,9 +97,11 @@ Full builds require a privileged environment, e.g. `docker run --cap-add=SYS_ADM
 
 ## Reproducible Builds
 
-Version metadata is derived from git: `version` is the last commit's date (`YYYYMMDD`), `commit` is the short hash - or `wip` when the working tree is dirty. `SOURCE_DATE_EPOCH` is exported and used to make timestamps in produced images reproducible.
+Version metadata comes from `VERSION`, a single ISO date (`YYYY-MM-DD`) at the repository root: `version` is that date as `YYYYMMDD`, and `commit` is the short git hash — or `wip` when the working tree is dirty. `SOURCE_DATE_EPOCH` is set to midnight UTC of the `VERSION` date and is used to make timestamps in the produced images reproducible.
 
-Snapshot pinning is opt-in via `--reproducible`. With the flag on a clean working tree, `modebos` pins the package mirror to a snapshot.debian.org archive dated with the git commit. With the flag on a dirty tree, a warning is printed on stderr and the upstream `deb.debian.org` mirror is used instead — reproducibility is not guaranteed. Without the flag, plain upstream `deb.debian.org` sources are used.
+Build-time APT sources are always pinned to the `snapshot.debian.org` archive for the `VERSION` date, written as an apt 2.7+ deb822 `.sources` file. By default the resulting image is then repointed at the rolling upstream `deb.debian.org` mirror, so it stays updatable; the build itself still packages against the pinned snapshot. Reproducibility therefore depends only on the `VERSION` date and the snapshot archive, not on the commit time.
+
+Passing `--reproducible` keeps the snapshot-pinned source list in the resulting image as well. This requires a clean working tree: with a dirty tree a warning is printed on stderr and the flag is dropped — the image is built with rolling sources instead, so reproducibility is never silently claimed.
 
 ## Developer Notes
 

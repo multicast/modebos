@@ -74,7 +74,7 @@ Every artifact (and its debos shim) is named
 
 e.g. `testing-kvm-qemunet-20260917-e51bb5d.yaml` for `modebos qemunet kvm`.
 
-- `suite`, `version`, `commit` — Debian suite, build date `YYYYMMDD`, and short git hash (`wip` while the tree is dirty).
+- `suite`, `version`, `commit` — Debian suite, version date `YYYYMMDD` (from the repository-root `VERSION` file), and short git hash (`wip` while the tree is dirty).
 - `target` — the target mod producing the artifact (`rootfs`, `kvm`, `oci`).
 - `mods` — **not** the raw command line. modebos computes, per target, the minimal set of mods you actually asked for: the resolved dependency chain, minus anything that is pulled in as a (transitive) dependency of something else you named, plus the current target. This is the "Minimal[x]" line in the build output.
   - targets are never part of the mods label (the target already has its own slot).
