@@ -9,11 +9,11 @@ This target rewrites `/etc/os-release` and appends the same modebos provenance f
 
 ## Loading the artifact into a container runtime
 
-The artifact (e.g. `testing-oci-20260916-abc1234.tar.gz`) is an OCI image archive. Import it and run a container with a single command in one step:
+The artifact (e.g. `modebos-20260916-oci.tar.gz`) is an OCI image archive. Import it and run a container with a single command in one step:
 
 ```sh
-podman load < testing-oci-20260916-abc1234.tar.gz
-podman run --rm testing-oci-20260916-abc1234 echo hello world
+podman load < modebos-20260916-oci.tar.gz
+podman run --rm modebos-20260916-oci echo hello world
 ```
 
 The image is tagged with the archive's basename (minus the extension); substitute the actual artifact name from your build.

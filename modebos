@@ -279,6 +279,7 @@ class ShimWriter:
         version_date: str,
         commit: str,
         mods_name: str,
+        artifact_base: str,
         reproducible: bool = False,
         target_params: dict[str, str] | None = None,
     ) -> None:
@@ -288,6 +289,7 @@ class ShimWriter:
         self._version_date = version_date
         self._commit = commit
         self._mods_name = mods_name
+        self._artifact_base = artifact_base
         self._reproducible = reproducible
         self._target_params = target_params or {}
 
@@ -313,7 +315,7 @@ class ShimWriter:
         shim_dir: Path,
     ) -> Path:
         """Create a rootfs shim that uses mmdebstrap."""
-        path = shim_dir / self._shim_filename(target_mod)
+        path = shim_dir / self._shim_filename()
         content = (
             f"architecture: {self._arch}\n"
             "\n"
@@ -366,7 +368,7 @@ class ShimWriter:
         Create a target shim that unpacks a rootfs artifact first,
         then applies the target recipe.
         """
-        path = shim_dir / self._shim_filename(target_mod)
+        path = shim_dir / self._shim_filename()
         content = (
             f"architecture: {self._arch}\n"
             "\n"
@@ -401,6 +403,7 @@ class ShimWriter:
             f"      commit: {self._commit}\n"
             f"      architecture: {self._arch}\n"
             f"      mods: {self._mods_name}\n"
+            f"      artifact_base: {self._artifact_base}\n"
             f"      reproducible: \"{'true' if self._reproducible else 'false'}\"\n"
         )
         # Add target-specific parameters
@@ -408,8 +411,8 @@ class ShimWriter:
             variables += f"      {key}: {value}\n"
         return variables
 
-    def _shim_filename(self, target_mod: str) -> str:
-        return artifact_name(self._suite, target_mod, self._mods_name, self._version, self._commit) + ".yaml"
+    def _shim_filename(self) -> str:
+        return self._artifact_base + ".yaml"
 
 
 # ── Debos runner ───────────────────────────────────────────────────────────
@@ -515,12 +518,20 @@ class DebosRunner:
 # ── Build orchestration ────────────────────────────────────────────────────
 
 
-def artifact_name(suite: str, target: str, mods_name: str, version: str, commit: str) -> str:
-    """Human-readable name for a build artifact."""
-    parts = [suite, target]
+def artifact_name(target: str, mods_name: str, version: str, commit: str, reproducible: bool) -> str:
+    """Human-readable name for a build artifact: ``modebos-<version>[-<mods>]-<target>[-<commit>]``.
+
+    The Debian suite is deliberately not part of the name.  ``<mods>`` is
+    omitted when empty, and ``<commit>`` is appended only for reproducible
+    builds (which require a clean tree, so the hash identifies the exact
+    source).
+    """
+    parts = ["modebos", version]
     if mods_name:
         parts.append(mods_name)
-    parts.extend([version, commit])
+    parts.append(target)
+    if reproducible:
+        parts.append(commit)
     return "-".join(parts)
 
 
@@ -562,11 +573,14 @@ def build_target(
     # Locate the target's own recipe
     target_path = registry.recipe_path(target_mod, "target.yaml")
 
+    # Artifact name doubles as the shim filename and is handed to the
+    # target recipe as ``artifact_base`` so every artifact site stays in sync.
+    name = artifact_name(target_mod, mods_name, version, commit, reproducible)
+
     # Generate shim
-    writer = ShimWriter(suite, arch, version, version_date, commit, mods_name, reproducible, target_params or {})
+    writer = ShimWriter(suite, arch, version, version_date, commit, mods_name, name, reproducible, target_params or {})
     shim = writer.write_shim(target_mod, target_path, includes, snapshot_url, output_dir)
 
-    name = artifact_name(suite, target_mod, mods_name, version, commit)
     print(f"=== Building {target_mod} ({name}) ===")
 
     if verbose:
@@ -702,7 +716,11 @@ def main() -> None:
     # ── build rootfs once (shared prerequisite) ────────────────────────
     rootfs_file = (
         artifact_name(
-            args.suite, "rootfs", registry.artifact_label(targets["rootfs"]), build_info.version, build_info.commit
+            "rootfs",
+            registry.artifact_label(targets["rootfs"]),
+            build_info.version,
+            build_info.commit,
+            build_info.reproducible,
         )
         + ".tar.gz"
     )

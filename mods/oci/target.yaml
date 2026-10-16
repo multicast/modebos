@@ -155,6 +155,6 @@ actions:
     description: "Move OCI image archive to artifact dir"
     command: |
       set -e
-      base="{{ $suite }}-oci{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}"
+      base="{{ .artifact_base }}"
       mv "$ROOTDIR/oci-image.tar.gz" "$ARTIFACTDIR/${base}.tar.gz"
       rm -rf "$ROOTDIR/oci-build"
