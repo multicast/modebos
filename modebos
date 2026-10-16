@@ -53,6 +53,7 @@ class BuildInfo:
 
     commit: str  # short hash, or "wip" when the tree is dirty
     version: str  # YYYYMMDD, from the VERSION file
+    version_date: str  # YYYY-MM-DD, the raw VERSION file content
     snapshot_url: str  # build-time snapshot.debian.org mirror for that date
     epoch: int  # UTC midnight of the VERSION date
     clean: bool  # working tree is clean
@@ -105,6 +106,7 @@ def get_build_info(repo_dir: Path, reproducible: bool = False) -> BuildInfo:
     """
     version_dt = read_version(repo_dir)
     version = version_dt.strftime("%Y%m%d")
+    version_date = version_dt.strftime("%Y-%m-%d")
     snapshot_url = SNAPSHOT_MIRROR_TEMPLATE.format(version)
     epoch = int(version_dt.replace(tzinfo=timezone.utc).timestamp())
 
@@ -127,6 +129,7 @@ def get_build_info(repo_dir: Path, reproducible: bool = False) -> BuildInfo:
     return BuildInfo(
         commit=commit,
         version=version,
+        version_date=version_date,
         snapshot_url=snapshot_url,
         epoch=epoch,
         clean=clean,
@@ -273,15 +276,19 @@ class ShimWriter:
         suite: str,
         arch: str,
         version: str,
+        version_date: str,
         commit: str,
         mods_name: str,
+        reproducible: bool = False,
         target_params: dict[str, str] | None = None,
     ) -> None:
         self._suite = suite
         self._arch = arch
         self._version = version
+        self._version_date = version_date
         self._commit = commit
         self._mods_name = mods_name
+        self._reproducible = reproducible
         self._target_params = target_params or {}
 
     def write_shim(
@@ -390,9 +397,11 @@ class ShimWriter:
             "    variables:\n"
             f"      suite: {self._suite}\n"
             f"      version: {self._version}\n"
+            f"      version_date: {self._version_date}\n"
             f"      commit: {self._commit}\n"
             f"      architecture: {self._arch}\n"
             f"      mods: {self._mods_name}\n"
+            f"      reproducible: \"{'true' if self._reproducible else 'false'}\"\n"
         )
         # Add target-specific parameters
         for key, value in self._target_params.items():
@@ -523,6 +532,7 @@ def build_target(
     suite: str,
     arch: str,
     version: str,
+    version_date: str,
     commit: str,
     output_dir: Path,
     verbose: bool,
@@ -553,7 +563,7 @@ def build_target(
     target_path = registry.recipe_path(target_mod, "target.yaml")
 
     # Generate shim
-    writer = ShimWriter(suite, arch, version, commit, mods_name, target_params or {})
+    writer = ShimWriter(suite, arch, version, version_date, commit, mods_name, reproducible, target_params or {})
     shim = writer.write_shim(target_mod, target_path, includes, snapshot_url, output_dir)
 
     name = artifact_name(suite, target_mod, mods_name, version, commit)
@@ -705,6 +715,7 @@ def main() -> None:
             args.suite,
             args.arch,
             build_info.version,
+            build_info.version_date,
             build_info.commit,
             output_dir,
             args.verbose,
@@ -729,6 +740,7 @@ def main() -> None:
             args.suite,
             args.arch,
             build_info.version,
+            build_info.version_date,
             build_info.commit,
             output_dir,
             args.verbose,

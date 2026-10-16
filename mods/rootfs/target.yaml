@@ -1,10 +1,28 @@
 {{- $suite := or .suite "testing" -}}
 {{- $version := or .version (now | date "20060102") -}}
+{{- $version_date := or .version_date $version -}}
 {{- $commit := or .commit "unknown" -}}
 
 architecture: {{ .architecture }}
 
 actions:
+  - action: run
+    description: Record modebos build metadata in os-release
+    chroot: true
+    command: |
+      . /etc/os-release
+      prefix=""
+      suffix=""
+      if [ "{{ .reproducible }}" = "true" ]; then
+        prefix="Reproducible "
+        suffix="{{ $version }}T000000Z"
+      fi
+      printf 'MODEBOS_NAME="Modebos %s%s"\n' "$prefix" "$PRETTY_NAME" >> /etc/os-release
+      printf 'MODEBOS_VERSION="%s"\n' "{{ $version_date }}" >> /etc/os-release
+      if [ -n "$suffix" ]; then
+        printf 'MODEBOS_REPRODUCIBLE="%s"\n' "$suffix" >> /etc/os-release
+      fi
+
   - action: run
     description: Clean rootfs image
     chroot: true

@@ -124,6 +124,16 @@ Build-time APT sources are always pinned to the `snapshot.debian.org` archive fo
 
 Passing `--reproducible` keeps the snapshot-pinned source list in the resulting image as well. This requires a clean working tree: with a dirty tree a warning is printed on stderr and the flag is dropped — the image is built with rolling sources instead, so reproducibility is never silently claimed.
 
+Every image also records its provenance in the standard `/etc/os-release` file, appended after the distribution's own fields:
+
+```ini
+MODEBOS_NAME="Modebos <PRETTY_NAME>"
+MODEBOS_VERSION="<YYYY-MM-DD>"
+MODEBOS_REPRODUCIBLE="<YYYYMMDD>T000000Z"
+```
+
+`<PRETTY_NAME>` is the base distribution's own `PRETTY_NAME` copied literally. `MODEBOS_VERSION` is the raw `VERSION` file content. `MODEBOS_REPRODUCIBLE` names the `snapshot.debian.org` timestamp the build was pinned to and is present only for reproducible builds; `MODEBOS_NAME` carries the `Reproducible` marker (`Modebos Reproducible <PRETTY_NAME>`) to match.
+
 ## Developer Notes
 
 Developer-oriented guidance (mod layout, debos template quirks, pre-commit stages, verification loop) lives in `AGENTS.md`.
