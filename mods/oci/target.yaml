@@ -1,5 +1,6 @@
-{{- $suite := or .suite "trixie" -}}
+{{- $suite := or .suite "testing" -}}
 {{- $version := or .version (now | date "20060102") -}}
+{{- $version_date := or .version_date $version -}}
 {{- $commit := or .commit "unknown" -}}
 
 architecture: {{ .architecture }}
@@ -18,6 +19,18 @@ actions:
       echo 'HOME_URL="https://www.debian.org/"' >> /etc/os-release
       echo 'SUPPORT_URL="https://www.debian.org/support"' >> /etc/os-release
       echo 'BUG_REPORT_URL="https://bugs.debian.org/"' >> /etc/os-release
+      . /etc/os-release
+      prefix=""
+      suffix=""
+      if [ "{{ .reproducible }}" = "true" ]; then
+        prefix="Reproducible "
+        suffix="{{ $version }}T000000Z"
+      fi
+      printf 'MODEBOS_NAME="Modebos %s%s"\n' "$prefix" "$PRETTY_NAME" >> /etc/os-release
+      printf 'MODEBOS_VERSION="%s"\n' "{{ $version_date }}" >> /etc/os-release
+      if [ -n "$suffix" ]; then
+        printf 'MODEBOS_REPRODUCIBLE="%s"\n' "$suffix" >> /etc/os-release
+      fi
 
   - action: run
     description: "Recreate runtime mountpoint dirs"

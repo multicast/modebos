@@ -1,10 +1,28 @@
-{{- $suite := or .suite "trixie" -}}
+{{- $suite := or .suite "testing" -}}
 {{- $version := or .version (now | date "20060102") -}}
+{{- $version_date := or .version_date $version -}}
 {{- $commit := or .commit "unknown" -}}
 
 architecture: {{ .architecture }}
 
 actions:
+  - action: run
+    description: Record modebos build metadata in os-release
+    chroot: true
+    command: |
+      . /etc/os-release
+      prefix=""
+      suffix=""
+      if [ "{{ .reproducible }}" = "true" ]; then
+        prefix="Reproducible "
+        suffix="{{ $version }}T000000Z"
+      fi
+      printf 'MODEBOS_NAME="Modebos %s%s"\n' "$prefix" "$PRETTY_NAME" >> /etc/os-release
+      printf 'MODEBOS_VERSION="%s"\n' "{{ $version_date }}" >> /etc/os-release
+      if [ -n "$suffix" ]; then
+        printf 'MODEBOS_REPRODUCIBLE="%s"\n' "$suffix" >> /etc/os-release
+      fi
+
   - action: run
     description: Clean rootfs image
     chroot: true
@@ -26,6 +44,24 @@ actions:
   - action: run
     chroot: true
     command: rm -f /manifest.txt /dpkg-selections.txt /env.txt
+
+{{- if ne .reproducible "true" }}
+
+  - action: run
+    description: Point APT at rolling upstream Debian sources
+    chroot: true
+    command: |
+      rm -f /etc/apt/sources.list
+      mkdir -p /etc/apt/sources.list.d
+      cat > /etc/apt/sources.list.d/debian.sources <<EOF
+      Types: deb
+      URIs: http://deb.debian.org/debian
+      Suites: {{ $suite }}
+      Components: main contrib non-free non-free-firmware
+      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+      EOF
+
+{{- end }}
 
   - action: pack
     file: {{ $suite }}-rootfs{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.tar.gz

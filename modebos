@@ -24,7 +24,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -34,11 +34,13 @@ import yaml
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
-DEFAULT_SUITE = "trixie"
+DEFAULT_SUITE = "testing"
 DEFAULT_ARCH = "amd64"
 DEFAULT_OUTPUT = "./artifacts"
 DEFAULT_SCRATCH_SIZE = "12G"
 
+VERSION_FILENAME = "VERSION"
+COMPONENTS = "main contrib non-free non-free-firmware"
 SNAPSHOT_MIRROR_TEMPLATE = "http://snapshot.debian.org/archive/debian/{}T000000Z/"
 
 
@@ -46,13 +48,16 @@ SNAPSHOT_MIRROR_TEMPLATE = "http://snapshot.debian.org/archive/debian/{}T000000Z
 
 
 @dataclass(frozen=True)
-class GitInfo:
-    """Version metadata extracted from the git repository."""
+class BuildInfo:
+    """Version metadata driven by the VERSION file and the git repository."""
 
-    commit: str
-    date: str  # YYYYMMDD
-    snapshot_url: str | None = None
-    epoch: int = 0
+    commit: str  # short hash, or "wip" when the tree is dirty
+    version: str  # YYYYMMDD, from the VERSION file
+    version_date: str  # YYYY-MM-DD, the raw VERSION file content
+    snapshot_url: str  # build-time snapshot.debian.org mirror for that date
+    epoch: int  # UTC midnight of the VERSION date
+    clean: bool  # working tree is clean
+    reproducible: bool  # effective flag, after the clean-tree prerequisite
 
 
 @dataclass
@@ -66,14 +71,45 @@ class ModMeta:
     label: bool = True
 
 
-def get_git_info(repo_dir: Path) -> GitInfo:
+def read_version(repo_dir: Path) -> datetime:
     """
-    Read commit hash, build date, and optional snapshot.debian.org URL
-    from the git repository at *repo_dir*.
+    Read the build date from the ``VERSION`` file at *repo_dir*.
 
-    If the working tree is dirty the snapshot URL is suppressed so that
-    non-reproducible builds are not accidentally published.
+    The file must contain a single ISO date (``YYYY-MM-DD``); the date is
+    the source of truth for both the build-time snapshot mirror and the
+    image's version metadata.
     """
+    version_file = repo_dir / VERSION_FILENAME
+    if not version_file.exists():
+        print(f"Error: {VERSION_FILENAME} not found at {version_file}", file=sys.stderr)
+        sys.exit(1)
+    raw = version_file.read_text().strip()
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        print(
+            f"Error: {VERSION_FILENAME} must contain an ISO date (YYYY-MM-DD), got: {raw!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def get_build_info(repo_dir: Path, reproducible: bool = False) -> BuildInfo:
+    """
+    Combine the ``VERSION`` date with git provenance into a :class:`BuildInfo`.
+
+    The VERSION date always defines the version metadata and the
+    snapshot.debian.org mirror used at build time.  Reproducibility (keeping
+    that pinned source list in the resulting image) requires a clean working
+    tree: a dirty tree silently drops the request to a warning from the
+    caller.
+    """
+    version_dt = read_version(repo_dir)
+    version = version_dt.strftime("%Y%m%d")
+    version_date = version_dt.strftime("%Y-%m-%d")
+    snapshot_url = SNAPSHOT_MIRROR_TEMPLATE.format(version)
+    epoch = int(version_dt.replace(tzinfo=timezone.utc).timestamp())
+
     git_opts: dict[str, Any] = {"text": True, "cwd": repo_dir, "stderr": subprocess.DEVNULL}
 
     try:
@@ -90,21 +126,14 @@ def get_git_info(repo_dir: Path) -> GitInfo:
     if not clean:
         commit = "wip"
 
-    try:
-        ts = subprocess.check_output(["git", "log", "-1", "--format=%ct", "HEAD"], **git_opts).strip()
-        epoch = int(ts)
-        date = datetime.fromtimestamp(epoch).strftime("%Y%m%d")
-        snapshot = SNAPSHOT_MIRROR_TEMPLATE.format(date)
-    except (subprocess.CalledProcessError, ValueError):
-        epoch = int(datetime.now().timestamp())
-        date = datetime.now().strftime("%Y%m%d")
-        snapshot = None
-
-    return GitInfo(
+    return BuildInfo(
         commit=commit,
-        date=date,
-        snapshot_url=None if not clean else snapshot,
+        version=version,
+        version_date=version_date,
+        snapshot_url=snapshot_url,
         epoch=epoch,
+        clean=clean,
+        reproducible=reproducible and clean,
     )
 
 
@@ -247,15 +276,19 @@ class ShimWriter:
         suite: str,
         arch: str,
         version: str,
+        version_date: str,
         commit: str,
         mods_name: str,
+        reproducible: bool = False,
         target_params: dict[str, str] | None = None,
     ) -> None:
         self._suite = suite
         self._arch = arch
         self._version = version
+        self._version_date = version_date
         self._commit = commit
         self._mods_name = mods_name
+        self._reproducible = reproducible
         self._target_params = target_params or {}
 
     def write_shim(
@@ -263,7 +296,7 @@ class ShimWriter:
         target_mod: str,
         target_recipe: Path,
         recipe_includes: str,
-        snapshot_url: str | None,
+        snapshot_url: str,
         shim_dir: Path,
     ) -> Path:
         """Render the shim for *target_mod*: rootfs uses mmdebstrap, others unpack it."""
@@ -276,12 +309,11 @@ class ShimWriter:
         target_mod: str,
         target_recipe: Path,
         recipe_includes: str,
-        snapshot_url: str | None,
+        snapshot_url: str,
         shim_dir: Path,
     ) -> Path:
         """Create a rootfs shim that uses mmdebstrap."""
         path = shim_dir / self._shim_filename(target_mod)
-        snapshot_url = self._mirrors(snapshot_url)
         content = (
             f"architecture: {self._arch}\n"
             "\n"
@@ -290,10 +322,25 @@ class ShimWriter:
             f'    description: "Create minimal filesystem from {snapshot_url}"\n'
             f'    mirrors: ["{snapshot_url}"]\n'
             "    suite: {{ .suite }}\n"
-            "    components: [main, contrib, non-free, non-free-firmware]\n"
+            f"    components: [{COMPONENTS.replace(' ', ', ')}]\n"
             '    variant: "minbase"\n'
             "    include:\n"
             "      - linux-sysctl-defaults\n"
+            "\n"
+            "  - action: run\n"
+            '    description: "Write snapshot-pinned deb822 APT sources"\n'
+            "    chroot: true\n"
+            "    command: |\n"
+            "      rm -f /etc/apt/sources.list\n"
+            "      mkdir -p /etc/apt/sources.list.d\n"
+            "      cat > /etc/apt/sources.list.d/debian.sources <<'EOF'\n"
+            "      Types: deb\n"
+            f"      URIs: {snapshot_url}\n"
+            "      Suites: {{ .suite }}\n"
+            f"      Components: {COMPONENTS}\n"
+            "      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg\n"
+            "      Check-Valid-Until: no\n"
+            "      EOF\n"
             "\n"
             "  - action: run\n"
             '    description: "Update APT package index inside the chroot"\n'
@@ -339,12 +386,6 @@ class ShimWriter:
     # ── internal helpers ───────────────────────────────────────────────
 
     @staticmethod
-    def _mirrors(snapshot_url: str | None) -> str:
-        if snapshot_url:
-            return snapshot_url
-        return "http://deb.debian.org/debian"
-
-    @staticmethod
     def _includes_block(block: str) -> str:
         """Wrap recipe-include entries between the surrounding actions."""
         if not block.strip():
@@ -356,9 +397,11 @@ class ShimWriter:
             "    variables:\n"
             f"      suite: {self._suite}\n"
             f"      version: {self._version}\n"
+            f"      version_date: {self._version_date}\n"
             f"      commit: {self._commit}\n"
             f"      architecture: {self._arch}\n"
             f"      mods: {self._mods_name}\n"
+            f"      reproducible: \"{'true' if self._reproducible else 'false'}\"\n"
         )
         # Add target-specific parameters
         for key, value in self._target_params.items():
@@ -400,6 +443,7 @@ class DebosRunner:
         mods_name: str,
         rootfs: str | None = None,
         target_params: dict[str, str] | None = None,
+        reproducible: bool = False,
     ) -> None:
         output_dir = self._output_dir.resolve()
         scratch_dir = output_dir / "scratch"
@@ -430,6 +474,9 @@ class DebosRunner:
         )
         if rootfs:
             cmd.extend(["-t", f"rootfs:{rootfs}"])
+        # Target recipes decide whether to keep the pinned source list in the
+        # resulting image based on this variable.
+        cmd.extend(["-t", f"reproducible:{'true' if reproducible else 'false'}"])
         # Add target-specific parameters
         if target_params:
             for key, value in target_params.items():
@@ -485,14 +532,16 @@ def build_target(
     suite: str,
     arch: str,
     version: str,
+    version_date: str,
     commit: str,
     output_dir: Path,
     verbose: bool,
     rootfs_artifact: str,
     label_mods: str = "",
-    snapshot_url: str | None = None,
+    snapshot_url: str = "",
     dry_run: bool = False,
     target_params: dict[str, str] | None = None,
+    reproducible: bool = False,
 ) -> None:
     """
     Build a single target:
@@ -514,7 +563,7 @@ def build_target(
     target_path = registry.recipe_path(target_mod, "target.yaml")
 
     # Generate shim
-    writer = ShimWriter(suite, arch, version, commit, mods_name, target_params or {})
+    writer = ShimWriter(suite, arch, version, version_date, commit, mods_name, reproducible, target_params or {})
     shim = writer.write_shim(target_mod, target_path, includes, snapshot_url, output_dir)
 
     name = artifact_name(suite, target_mod, mods_name, version, commit)
@@ -527,7 +576,7 @@ def build_target(
 
     # Run debos
     runner = DebosRunner(output_dir, verbose, dry_run)
-    runner.run(shim, suite, arch, version, commit, mods_name, rootfs_artifact)
+    runner.run(shim, suite, arch, version, commit, mods_name, rootfs_artifact, reproducible=reproducible)
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────
@@ -536,11 +585,19 @@ def build_target(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Modular Debian Image Builder")
     parser.add_argument("mods", nargs="*", default=[], help="Module names")
-    parser.add_argument("-s", "--suite", default=DEFAULT_SUITE)
+    parser.add_argument("-s", "--suite", default=DEFAULT_SUITE, help=f"Debian suite to build (default: {DEFAULT_SUITE})")
     parser.add_argument("-a", "--arch", default=DEFAULT_ARCH)
     parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("-n", "--dry-run", action="store_true")
+    parser.add_argument(
+        "--reproducible",
+        action="store_true",
+        help=(
+            "Keep the VERSION-dated snapshot.debian.org source list in the resulting image "
+            "(requires a clean working tree; dropped with a warning otherwise)"
+        ),
+    )
     parser.add_argument("-m", "--list-mods", action="store_true")
     parser.add_argument("-t", "--list-targets", action="store_true")
     parser.add_argument(
@@ -618,11 +675,19 @@ def main() -> None:
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    git_info = get_git_info(script_dir)
+    build_info = get_build_info(script_dir, reproducible=args.reproducible)
+
+    if args.reproducible and not build_info.reproducible:
+        reason = "the working tree is dirty" if build_info.commit == "wip" else "no git repository is available"
+        print(
+            f"Warning: --reproducible requested but {reason}; the resulting image will use rolling "
+            "upstream Debian sources (reproducibility not guaranteed).",
+            file=sys.stderr,
+        )
 
     print(f"=== Building Debian {args.suite} ===")
-    print(f"Version: {git_info.date}")
-    print(f"Commit: {git_info.commit}")
+    print(f"Version: {build_info.version}")
+    print(f"Commit: {build_info.commit}")
     print(f"Targets: {', '.join(targets.keys())}")
     print(f"Resolved (all): {', '.join(resolved)}")
     print(f"Minimal[rootfs]: {registry.artifact_label(targets['rootfs'])}")
@@ -631,13 +696,14 @@ def main() -> None:
             continue
         print(f"Minimal[{t}]: {registry.artifact_label(targets[t])}")
 
-    if git_info.snapshot_url:
-        print(f"Snapshot: {git_info.snapshot_url}")
-    os.environ["SOURCE_DATE_EPOCH"] = str(git_info.epoch)
+    print(f"Snapshot: {build_info.snapshot_url}")
+    os.environ["SOURCE_DATE_EPOCH"] = str(build_info.epoch)
 
     # ── build rootfs once (shared prerequisite) ────────────────────────
     rootfs_file = (
-        artifact_name(args.suite, "rootfs", registry.artifact_label(targets["rootfs"]), git_info.date, git_info.commit)
+        artifact_name(
+            args.suite, "rootfs", registry.artifact_label(targets["rootfs"]), build_info.version, build_info.commit
+        )
         + ".tar.gz"
     )
     if not (output_dir / rootfs_file).exists():
@@ -648,15 +714,17 @@ def main() -> None:
             resolved,
             args.suite,
             args.arch,
-            git_info.date,
-            git_info.commit,
+            build_info.version,
+            build_info.version_date,
+            build_info.commit,
             output_dir,
             args.verbose,
             rootfs_artifact=rootfs_file,
             label_mods=registry.artifact_label(targets["rootfs"]),
-            snapshot_url=git_info.snapshot_url,
+            snapshot_url=build_info.snapshot_url,
             dry_run=args.dry_run,
             target_params=target_params.get("rootfs"),
+            reproducible=build_info.reproducible,
         )
 
     # ── build each non-rootfs target ───────────────────────────────────
@@ -671,15 +739,17 @@ def main() -> None:
             resolved,
             args.suite,
             args.arch,
-            git_info.date,
-            git_info.commit,
+            build_info.version,
+            build_info.version_date,
+            build_info.commit,
             output_dir,
             args.verbose,
             rootfs_artifact=rootfs_file,
             label_mods=registry.artifact_label(targets[target]),
-            snapshot_url=git_info.snapshot_url,
+            snapshot_url=build_info.snapshot_url,
             dry_run=args.dry_run,
             target_params=target_params.get(target),
+            reproducible=build_info.reproducible,
         )
 
     # ── done ───────────────────────────────────────────────────────────

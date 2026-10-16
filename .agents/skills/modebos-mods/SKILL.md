@@ -8,8 +8,7 @@ description: How to create or update a modebos mod. Use when adding a new mod un
 A mod is a directory under `mods/<name>/` that contributes recipe steps to a
 debos build. Each mod's content belongs to a build **stage**. User-facing
 concepts (build flow, naming, `include`/`breaks`) live in `mods/README.md`;
-shim internals live in `references/recipe-mechanics.md` and load only when you
-debug a rendered shim or edit modebos's shim generator.
+shim/recipe internals live in `AGENTS.md`.
 
 ## Workflow
 
@@ -128,6 +127,5 @@ dry-validates the shim without error.
 
 ## Recipe mechanics
 
-Debugging a rendered shim or editing modebos's shim generator? Read
-`references/recipe-mechanics.md` for Go-template variables, shim structure,
-generator internals, and `-t` variables.
+Rendered shims and modebos's shim generator are tool concerns, not mod
+authoring — see the "Shim Recipes" section in `AGENTS.md`.
