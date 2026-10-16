@@ -74,6 +74,27 @@ Generated files are placed in `./artifacts/` by default:
 
 `artifacts/` is git-ignored. Filenames follow the scheme documented in [`mods/README.md`](mods/README.md#artifact-naming).
 
+## Running an Image Locally
+
+Building with the [`qemunet`](mods/qemunet/README.md) mod and the [`kvm`](mods/kvm/README.md) target produces a bootable qcow2 image configured for QEMU user-mode (SLIRP) networking. Run it with the `qemu.sh` helper in the repo root:
+
+```sh
+# Build a KVM image with QEMU user-mode networking (rootfs builds automatically)
+./modebos qemunet kvm
+
+# Boot the produced qcow2 (writes go to a temporary overlay, not the artifact)
+./qemu.sh artifacts/testing-kvm-qemunet-<version>-<commit>.qcow2
+```
+
+`qemu.sh` starts `qemu-system-x86_64` with KVM, forwards guest SSH to a free host port, and removes the copy-on-write overlay on exit — the built image is never modified. It prints the SSH command to use, typically `ssh -p <port> debian@localhost`.
+
+Optional arguments and environment:
+
+- `./qemu.sh <qcow2> <mount-tag> [shared-dir]` — share a host directory into the guest over 9p, using `<shared-dir>` (default: the current directory) mounted under `<mount-tag>`. With no tag, an empty scratch share is mounted; the [`lab`](mods/lab/README.md) mod auto-mounts whatever tag it finds.
+- `VM_CPU` (default `2`), `VM_MEMORY` in GB (default `1`), `SSH_PORT` (default: a free port).
+
+Running requires host virtualization (KVM) and OVMF firmware at `/usr/share/qemu/OVMF.fd`.
+
 ## Modules
 
 Mods are composable configurations that define targets and the content of the resulting images. The complete guide — how a build works, targets, `include`/`breaks` dependencies, and how artifacts get their names — plus the catalog of available mods, lives in [`mods/README.md`](mods/README.md).
