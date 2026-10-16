@@ -36,7 +36,7 @@ actions:
   - action: run
     description: Copy manifest files to artifact dir
     command: |
-      base="{{ $suite }}-rootfs{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}"
+      base="{{ .artifact_base }}"
       cp "$ROOTDIR/env.txt" "$ARTIFACTDIR/${base}.env.txt"
       cp "$ROOTDIR/manifest.txt" "$ARTIFACTDIR/${base}.manifest.txt"
       cp "$ROOTDIR/dpkg-selections.txt" "$ARTIFACTDIR/${base}.dpkg-selections.txt"
@@ -64,5 +64,5 @@ actions:
 {{- end }}
 
   - action: pack
-    file: {{ $suite }}-rootfs{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.tar.gz
+    file: {{ .artifact_base }}.tar.gz
     compression: gz

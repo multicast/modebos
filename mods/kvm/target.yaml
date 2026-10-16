@@ -32,7 +32,7 @@ actions:
   - action: run
     description: Copy manifest and dpkg selections to artifact dir
     command: |
-      base="{{ $suite }}-kvm{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}"
+      base="{{ .artifact_base }}"
       cp "$IMAGEMNTDIR/manifest.txt" "$ARTIFACTDIR/${base}.manifest.txt"
       cp "$IMAGEMNTDIR/dpkg-selections.txt" "$ARTIFACTDIR/${base}.dpkg-selections.txt"
 
@@ -63,8 +63,8 @@ actions:
   - action: run
     description: Convert image to qcow2
     postprocess: true
-    command: qemu-img convert -f raw -O qcow2 -c -o cluster_size=256k ${ARTIFACTDIR}/{{ $suite }}-{{ $version }}-{{ $commit }}.img ${ARTIFACTDIR}/{{ $suite }}-kvm{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.qcow2
+    command: qemu-img convert -f raw -O qcow2 -c -o cluster_size=256k ${ARTIFACTDIR}/{{ $suite }}-{{ $version }}-{{ $commit }}.img ${ARTIFACTDIR}/{{ .artifact_base }}.qcow2
 
   - action: run
     postprocess: true
-    command: mv ${ARTIFACTDIR}/{{ $suite }}-{{ $version }}-{{ $commit }}.img ${ARTIFACTDIR}/{{ $suite }}-kvm{{ if .mods }}-{{ .mods }}{{ end }}-{{ $version }}-{{ $commit }}.raw
+    command: mv ${ARTIFACTDIR}/{{ $suite }}-{{ $version }}-{{ $commit }}.img ${ARTIFACTDIR}/{{ .artifact_base }}.raw

@@ -3,7 +3,7 @@
 
 # Mods
 
-Every configuration is a mod in its own directory under `mods/<name>/`. The mod name is the directory name, and other mods reference it by that name in `include`/`breaks`. Mod names must NOT contain `-`, because they appear in dash-joined artifact filenames. Any mod whose `meta.yaml` sets `type: target` is an image target built by `modebos`.
+Every configuration is a mod in its own directory under `mods/<name>/`. The mod name is the directory name, and other mods reference it by that name in `include`/`breaks`. Mod names must NOT contain `-` or `+`, because they appear in dash-joined artifact filenames, and the mods section itself is `+`-joined. Any mod whose `meta.yaml` sets `type: target` is an image target built by `modebos`.
 
 ## How a build works
 
@@ -69,18 +69,21 @@ An `include` may name a target (e.g. `qemunet` includes `kvm`), which is how a m
 Every artifact (and its debos shim) is named
 
 ```text
-<suite>-<target>-<mods>-<version>-<commit>.yaml
+modebos-<version>[-<mods>]-<target>[-<commit>].yaml
 ```
 
-e.g. `testing-kvm-qemunet-20260917-e51bb5d.yaml` for `modebos qemunet kvm`.
+e.g. `modebos-20260917-qemunet-kvm.yaml` for `modebos qemunet kvm`.
 
-- `suite`, `version`, `commit` — Debian suite, version date `YYYYMMDD` (from the repository-root `VERSION` file), and short git hash (`wip` while the tree is dirty).
+- `version` — version date `YYYYMMDD` (from the repository-root `VERSION` file). The Debian suite is deliberately not part of the name.
 - `target` — the target mod producing the artifact (`rootfs`, `kvm`, `oci`).
 - `mods` — **not** the raw command line. modebos computes, per target, the minimal set of mods you actually asked for: the resolved dependency chain, minus anything that is pulled in as a (transitive) dependency of something else you named, plus the current target. This is the "Minimal[x]" line in the build output.
   - targets are never part of the mods label (the target already has its own slot).
   - mods with `label: false` (like `prod`) are excluded, so they act as markers that don't appear in filenames.
-  - when the label is empty, the `mods` section is omitted entirely (`testing-rootfs-20260917-e51bb5d.tar.gz`).
-  - multiple mods are comma-joined, and the dash-split parts are `suite`, `target`, `mods`, `version`, `commit` — hence no `-` may appear inside a mod name.
+  - when the label is empty, the `mods` section is omitted entirely (`modebos-20260917-rootfs.tar.gz`).
+  - multiple mods are `+`-joined (`ninep+qemunet`), and the dash-split parts are `modebos`, `version`, `mods`, `target`, `commit` — hence neither `-` nor `+` may appear inside a mod name.
+- `commit` — short git hash, appended **only for reproducible builds** (which require a clean tree, so the hash pins the exact source). Non-reproducible builds end at the target.
+
+The artifact name is computed once in modebos and handed to each target recipe as the `artifact_base` debos variable, so every filename a recipe writes (pack, manifest, image) stays in sync.
 
 With `modebos --dry-run -v ...` you can inspect the exact filenames, the rendered shim, and the `-t mods:` and `-t rootfs:` variables before committing to a real build.
 

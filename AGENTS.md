@@ -20,7 +20,7 @@ Usage, options, and examples live in `README.md`. Dev-only gotchas:
 
 ## Shim Recipes
 
-- Shims are Go templates. `.suite`, `.architecture`, `.version`, `.version_date`, `.commit`, `.mods`, and `.reproducible` are supplied by the shim's `variables:` block (which debos passes to the included recipe); `.rootfs` is supplied only via `-t`. debos does *not* propagate `-t` variables into recipes pulled in with `action: recipe`, so anything a target recipe reads must be listed in the shim `variables:` block.
+- Shims are Go templates. `.suite`, `.architecture`, `.version`, `.version_date`, `.commit`, `.mods`, `.artifact_base`, and `.reproducible` are supplied by the shim's `variables:` block (which debos passes to the included recipe); `.rootfs` is supplied only via `-t`. debos does *not* propagate `-t` variables into recipes pulled in with `action: recipe`, so anything a target recipe reads must be listed in the shim `variables:` block. `.artifact_base` is the artifact name computed once by `artifact_name()`; target recipes use it for every filename they write (pack, manifest, image).
 - A rootfs shim embeds an `mmdebstrap` pinned to the VERSION snapshot mirror, then writes the deb822 `.sources` file and runs `apt-get update`. Target shims start by `unpack`-ing the rootfs artifact, then include each resolved mod's `in-target.yaml`, then the target's own `target.yaml`.
 - Shims are assembled with Python f-strings in the write-shim functions of `modebos`. To emit a literal `{{ .suite }}` from an f-string, concatenate a brace-half string (e.g. `"{{\n"`). Generated recipe includes sit at 2-space indent inside `actions:`.
 - A mod that adds its own apt source must use a deb822 `.sources` file and must not re-create `/etc/apt/sources.list`.

@@ -83,7 +83,7 @@ Building with the [`qemunet`](mods/qemunet/README.md) mod and the [`kvm`](mods/k
 ./modebos qemunet kvm
 
 # Boot the produced qcow2 (writes go to a temporary overlay, not the artifact)
-./qemu.sh artifacts/testing-kvm-qemunet-<version>-<commit>.qcow2
+./qemu.sh artifacts/modebos-<version>-qemunet-kvm[-<commit>].qcow2
 ```
 
 `qemu.sh` starts `qemu-system-x86_64` with KVM, forwards guest SSH to a free host port, and removes the copy-on-write overlay on exit — the built image is never modified. It prints the SSH command to use, typically `ssh -p <port> debian@localhost`.
