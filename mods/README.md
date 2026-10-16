@@ -3,7 +3,7 @@
 
 # Mods
 
-Every configuration is a mod in its own directory under `mods/<name>/`. The mod name is the directory name, and other mods reference it by that name in `include`/`breaks`. Mod names must NOT contain `-`, because they appear in dash-joined artifact filenames. Any mod whose `meta.yaml` sets `type: target` is an image target built by `modebos`.
+Every configuration is a mod in its own directory under `mods/<name>/`. The mod name is the directory name, and other mods reference it by that name in `include`/`breaks`. Mod names must NOT contain `-` or `+`, because they appear in dash-joined artifact filenames, and the mods section itself is `+`-joined. Any mod whose `meta.yaml` sets `type: target` is an image target built by `modebos`.
 
 ## How a build works
 
@@ -80,7 +80,7 @@ e.g. `modebos-20260917-qemunet-kvm.yaml` for `modebos qemunet kvm`.
   - targets are never part of the mods label (the target already has its own slot).
   - mods with `label: false` (like `prod`) are excluded, so they act as markers that don't appear in filenames.
   - when the label is empty, the `mods` section is omitted entirely (`modebos-20260917-rootfs.tar.gz`).
-  - multiple mods are comma-joined, and the dash-split parts are `modebos`, `version`, `mods`, `target`, `commit` — hence no `-` may appear inside a mod name.
+  - multiple mods are `+`-joined (`ninep+qemunet`), and the dash-split parts are `modebos`, `version`, `mods`, `target`, `commit` — hence neither `-` nor `+` may appear inside a mod name.
 - `commit` — short git hash, appended **only for reproducible builds** (which require a clean tree, so the hash pins the exact source). Non-reproducible builds end at the target.
 
 The artifact name is computed once in modebos and handed to each target recipe as the `artifact_base` debos variable, so every filename a recipe writes (pack, manifest, image) stays in sync.

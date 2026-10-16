@@ -184,9 +184,9 @@ class ModRegistry:
         return self._mods_dir / mod / recipe_name
 
     def artifact_label(self, modules: list[str]) -> str:
-        """Comma-joined names of the given mods that aren't targets and are labeled."""
+        """Plus-joined names of the given mods that aren't targets and are labeled."""
         targets = self.list_targets()
-        return ",".join(m for m in modules if m not in targets and self._load_meta(m).label)
+        return "+".join(m for m in modules if m not in targets and self._load_meta(m).label)
 
     # ── dependency resolution ──────────────────────────────────────────
 
